@@ -12,6 +12,11 @@ pretty_midi==0.2.11     # MIDI操作
 music21==10.5.0         # MIDI → MusicXML（楽譜）変換
 librosa==0.11.0         # テンポ自動検出
 
+# 楽譜描画・PDF出力（MuseScore CLI が Darwin 25.5 でクラッシュするため本経路を使う）
+verovio==6.2.1          # MusicXML → SVG 描画
+cairosvg==2.9.0         # SVG → PNG/PDF 変換
+pypdf==6.14.2           # 各ページPDFを1ファイルに結合
+
 # getaudio.py 用（音声抽出）
 yt-dlp==2026.7.4        # 動画から音声抽出
 # ※ 別途 ffmpeg のインストールが必要（brew install ffmpeg 等）

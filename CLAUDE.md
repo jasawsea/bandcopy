@@ -203,6 +203,23 @@
 - **コード表示**：`score_all.py --audio <音源>` で detect_chords を走らせ、ボーカル段の上に
   コードを載せる（例：B7｜E｜EMaj7｜C#Maj7｜F#sus4…）。音源未指定ならコードなし。
 
+### PDF書き出しを実装（2026-07-26）
+共有・印刷用に全パートスコアのPDF出力を追加。
+- **経路**：verovioで各ページSVG化 → cairosvgでページごとにPDF化 → pypdfで結合。
+  `app/render.py` に `musicxml_to_pdf(xml)->bytes` 新設（`_load_toolkit`で既存SVG関数と共通化）。
+- **CLI**：`score_all.py --pdf` で `<フォルダ>/score/全パート_LvN.pdf` を出力。
+- **検証**：Rebound Lv3 で3ページA4のPDF生成を確認。4段（Vocal/Guitar/Bass/Drums）が
+  正しく描画される（`tests/` に単ページ・複数ページの2テスト追加、全15テスト緑）。
+- **依存追記**：requirements.txt に verovio/cairosvg/pypdf を明記（従来は未記載だった）。
+- **♩字形の□問題を解消**：以前は verovio がテンポ♩・コード♯を font-family="Leipzig" の
+  `<text>` で描き、cairosvg にそのフォントが無く□になっていた。verovio同梱のLeipzig
+  (base64 woff2)を ttf 化して `app/fonts/Leipzig.ttf` に同梱。`render.py` の
+  `_ensure_music_font()` が初回だけユーザーフォント（mac: ~/Library/Fonts）へ入れて
+  `fc-cache` する。cairosvg がフォントを引けるようになり ♩=86 と表示。生成PDFには
+  Leipzig がサブセット埋め込みされるため、他PCでも♩で見える（可搬）。
+  ※ ttf生成には fonttools＋brotli を使用（ttfは同梱済みなので実行時は不要）。
+- gitブランチ `pdf-export`。
+
 ### 現在の中断ポイント（2026-07-25 一区切り）
 今日ここまで到達。すべて `master` にマージ済み・全13テスト緑。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。

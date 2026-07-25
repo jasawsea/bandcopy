@@ -7,7 +7,7 @@ from pathlib import Path
 import pretty_midi
 
 from app.score import assemble_full_score, score_to_musicxml
-from app.render import musicxml_to_svg
+from app.render import musicxml_to_svg, musicxml_to_pdf
 from app.grid import make_template_grid
 from app.analyze import count_bars
 
@@ -26,6 +26,8 @@ def main():
     ap.add_argument("--tempo", type=float, default=None)
     ap.add_argument("--audio", default=None,
                     help="原曲の音源。指定するとコードを検出しボーカル段に載せる")
+    ap.add_argument("--pdf", action="store_true",
+                    help="印刷・共有用にPDFも書き出す")
     args = ap.parse_args()
 
     root = Path(args.outdir).resolve()
@@ -75,6 +77,11 @@ def main():
     print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {len(sc.parts)}")
     print(f"MusicXML: {xml_path}")
     print(f"SVG     : {svg_path}")
+
+    if args.pdf:
+        pdf_path = score_dir / f"全パート_Lv{args.level}.pdf"
+        pdf_path.write_bytes(musicxml_to_pdf(xml))
+        print(f"PDF     : {pdf_path}")
 
 
 if __name__ == "__main__":
