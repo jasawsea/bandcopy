@@ -188,6 +188,20 @@
 - 割り切り（設計どおり）：16分固定・ドラムのみ編集・出発点はテンプレート・描画はサーバ往復。
 - 次段（未着手）：自動採譜下書き／まとめ簡略化コマンド／全パートScore統合／PDF／アップロードUI。
 
+### 全パートScore統合 完成（2026-07-25）
+各パートを1枚のバンド譜（上→下：ボーカル/ギター/ベース/ドラム）に統合。
+- gitブランチ `full-score-integration`。全12テスト緑。
+- 設計書：`docs/2026-07-25-full-score-integration-design.md`／計画：`...-plan.md`
+- 構成：`app/score.py`（`pitched_part_from_midi`＝簡略化MIDIから段を作る／
+  `build_full_score`＝段を積む・テンポは最上段に1つ／`assemble_full_score`＝
+  音程3段＋ドラム段を組立／`score_to_musicxml`）＋ `score_all.py`（CLI）。
+- **使い方**：`./venv/bin/python score_all.py <出力フォルダ> [--level N] [--tempo N]`
+  → `<フォルダ>/score/全パート_LvN.musicxml` と `_render/full_score.svg` を出力。
+- 確認：Reboundで4段（Vocal=ト音/Guitar=ト音8vb/Bass=ヘ音8vb/Drums=パーカッション）が
+  小節線を揃えて縦に並ぶことを目視確認（`output/Yvv4RVQzIFk/_render/full_score.png`）。
+- 割り切り：ギター/鍵盤は1段（6音源分離htdemucs_6sで別段化は後）／ドラムはテンプレ／
+  PDFは後／コードはボーカル段に載せる仕組みは実装済み（CLIは未指定時コードなし）。
+
 ### 現在の中断ポイント（2026-07-25 更新）
 - 評価：分離音源◎／楽譜はテンポ・音部記号・オクターブclef・コード付与で実用度up。GO。
 - 検証用クリップ：`audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）
