@@ -52,3 +52,34 @@ def score_to_musicxml(sc) -> str:
     """統合スコアを MusicXML 文字列に変換する。"""
     from music21.musicxml.m21ToXml import GeneralObjectExporter
     return GeneralObjectExporter(sc).parse().decode("utf-8")
+
+
+def assemble_full_score(midi_paths: dict, drum_grid: dict, tempo: float,
+                        chords: list = None):
+    """音程3段（存在するもの）＋ドラム段を組み立てて Score を返す。"""
+    from music21 import harmony
+    from app.grid import grid_to_score
+
+    parts = []
+    for key, clef_type, name in PITCHED_ORDER:
+        path = midi_paths.get(key)
+        if not path:
+            continue
+        part = pitched_part_from_midi(path, clef_type, name)
+        if key == "vocals" and chords:
+            measures = list(part.recurse().getElementsByClass("Measure"))
+            for i, fig in enumerate(chords):
+                if fig and i < len(measures):
+                    try:
+                        measures[i].insert(0.0, harmony.ChordSymbol(fig))
+                    except Exception:
+                        pass  # 解釈できないコード表記はスキップ
+        parts.append(part)
+
+    # ドラム段（最下段）
+    drum_part = grid_to_score(drum_grid).parts[0]
+    drum_part.partName = "Drums"
+    drum_part.partAbbreviation = "Drums"
+    parts.append(drum_part)
+
+    return build_full_score(parts, tempo)

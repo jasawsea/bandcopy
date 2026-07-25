@@ -33,3 +33,20 @@ def test_build_full_score_stacks_in_order():
     assert sc.parts[0].partName == "A"
     assert sc.parts[1].partName == "B"
     assert list(sc.parts[0].recurse().getElementsByClass(m21tempo.MetronomeMark))
+
+
+def test_assemble_full_score_order_and_clefs(tmp_path):
+    from app.score import assemble_full_score
+    from app.grid import make_template_grid
+    from music21 import clef
+    midi_paths = {
+        "vocals": _tiny_midi(tmp_path, "v.mid"),
+        "bass": _tiny_midi(tmp_path, "b.mid"),
+    }
+    grid = make_template_grid(100.0, 2)
+    sc = assemble_full_score(midi_paths, grid, 100.0)
+    # otherは無いので飛ばし、Vocal→Bass→Drums の順
+    assert [p.partName for p in sc.parts] == ["Vocal", "Bass", "Drums"]
+    # 最下段はパーカッション音部記号
+    drum = sc.parts[-1]
+    assert list(drum.recurse().getElementsByClass(clef.PercussionClef))
