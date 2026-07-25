@@ -24,6 +24,8 @@ def main():
     ap.add_argument("outdir", help="曲の出力フォルダ（例: output/Yvv4RVQzIFk）")
     ap.add_argument("--level", type=int, default=3)
     ap.add_argument("--tempo", type=float, default=None)
+    ap.add_argument("--audio", default=None,
+                    help="原曲の音源。指定するとコードを検出しボーカル段に載せる")
     args = ap.parse_args()
 
     root = Path(args.outdir).resolve()
@@ -51,7 +53,13 @@ def main():
     bars = count_bars(end, tempo)
     drum_grid = make_template_grid(tempo, bars)
 
-    sc = assemble_full_score(midi_paths, drum_grid, tempo)
+    # 音源が指定されればコードを検出してボーカル段に載せる
+    chords = None
+    if args.audio:
+        from bandcopy import detect_chords
+        chords = detect_chords(Path(args.audio).expanduser().resolve(), tempo)
+
+    sc = assemble_full_score(midi_paths, drum_grid, tempo, chords=chords)
     xml = score_to_musicxml(sc)
 
     score_dir = root / "score"
