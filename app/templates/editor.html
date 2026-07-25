@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>bandcopy ドラムエディタ</title>
+  <link rel="stylesheet" href="/static/editor.css">
+</head>
+<body>
+  <h1>ドラムエディタ</h1>
+  <div id="controls">
+    <button id="play">▶ ドラム音源を再生</button>
+    <button id="render">譜面にする</button>
+    <button id="export">MusicXML書き出し</button>
+  </div>
+  <audio id="audio" src="/stem" preload="none"></audio>
+  <div id="grid"></div>
+  <div id="score"></div>
+  <script src="/static/editor.js"></script>
+</body>
+</html>

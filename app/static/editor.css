@@ -1,0 +1,13 @@
+body { font-family: sans-serif; margin: 20px; }
+#controls button { font-size: 15px; margin-right: 8px; padding: 6px 12px; }
+#grid { margin: 16px 0; overflow-x: auto; }
+.lane { display: flex; align-items: center; margin: 2px 0; }
+.lane-label { width: 32px; font-weight: bold; }
+.cell {
+  width: 22px; height: 22px; margin: 1px;
+  border: 1px solid #bbb; background: #fff; cursor: pointer; flex: 0 0 auto;
+}
+.cell.beat { border-left: 2px solid #888; }   /* 拍頭を強調 */
+.cell.on { background: #333; }
+.cell.on.hh { background: #c0392b; }           /* ハイハットは色分け */
+#score svg { max-width: 100%; height: auto; }
