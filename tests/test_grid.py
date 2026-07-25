@@ -1,4 +1,4 @@
-from app.grid import make_template_grid
+from app.grid import make_template_grid, grid_to_musicxml
 
 
 def test_template_grid_shape_and_backbeat():
@@ -18,3 +18,17 @@ def test_template_grid_shape_and_backbeat():
     assert all(hh[s] == 1 for s in range(0, 16, 2))
     # 2小節目も同じパターンが繰り返される
     assert kk[16] == 1 and kk[24] == 1
+
+
+def test_grid_to_musicxml_has_percussion_and_xhead():
+    g = make_template_grid(tempo=100.0, bars=1)
+    xml = grid_to_musicxml(g)
+    assert "<score-partwise" in xml
+    # パーカッション音部記号
+    assert "percussion" in xml.lower()
+    # ハイハットは×符頭
+    assert "<notehead" in xml and ">x<" in xml
+    # 1小節分の measure が存在する
+    assert xml.count("<measure") == 1
+    # 打楽器なので unpitched（音程なし）で書かれる
+    assert "<unpitched" in xml

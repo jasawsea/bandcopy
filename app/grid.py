@@ -24,3 +24,60 @@ def make_template_grid(tempo: float, bars: int, steps_per_bar: int = 16) -> dict
         "steps_per_bar": steps_per_bar,
         "lanes": {"KK": kk, "SN": sn, "HH": hh},
     }
+
+
+# レーンごとの記譜位置（displayStep, displayOctave, notehead）
+LANE_NOTATION = {
+    "KK": ("F", 4, None),   # キック：下第1間
+    "SN": ("C", 5, None),   # スネア：第3間
+    "HH": ("G", 5, "x"),    # ハイハット：上第1線上・×符頭
+}
+
+
+def grid_to_score(grid: dict):
+    """グリッドを music21 の打楽器スコアに変換する。"""
+    from music21 import stream, note, clef, meter, duration
+    from music21 import tempo as m21tempo
+
+    spb = grid["steps_per_bar"]
+    bars = grid["bars"]
+    step_ql = 4.0 / spb  # 16ステップ/小節なら0.25拍
+
+    part = stream.Part()
+    part.insert(0, clef.PercussionClef())
+    part.insert(0, meter.TimeSignature("4/4"))
+    part.insert(0, m21tempo.MetronomeMark(number=round(grid["tempo"])))
+
+    for b in range(bars):
+        m = stream.Measure(number=b + 1)
+        for lane, (dstep, doct, head) in LANE_NOTATION.items():
+            arr = grid["lanes"][lane]
+            v = stream.Voice()
+            for s in range(spb):
+                idx = b * spb + s
+                if idx < len(arr) and arr[idx]:
+                    n = note.Unpitched()
+                    n.displayStep = dstep
+                    n.displayOctave = doct
+                    n.duration = duration.Duration(step_ql)
+                    if head:
+                        n.notehead = head
+                    v.insert(s * step_ql, n)
+            if list(v.notes):
+                # 打点間の隙間を休符で埋める（そのレーン内で）
+                v.makeRests(fillGaps=True, inPlace=True)
+                m.insert(0, v)
+        if not list(m.voices):
+            m.insert(0, note.Rest(quarterLength=4.0))  # 空小節は全休符
+        part.append(m)
+
+    sc = stream.Score()
+    sc.insert(0, part)
+    return sc
+
+
+def grid_to_musicxml(grid: dict) -> str:
+    """グリッドを MusicXML 文字列に変換する。"""
+    from music21.musicxml.m21ToXml import GeneralObjectExporter
+    sc = grid_to_score(grid)
+    return GeneralObjectExporter(sc).parse().decode("utf-8")
