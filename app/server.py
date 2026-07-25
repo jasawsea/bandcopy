@@ -1,4 +1,6 @@
 """ローカルWebエディタのFlaskアプリ。HTTPの配線のみ。"""
+import os
+
 from flask import Flask, jsonify, request, Response, send_file, render_template
 
 from app.grid import grid_to_musicxml
@@ -36,6 +38,7 @@ def create_app(state: dict) -> Flask:
     def stem():
         if not state.get("stem_path"):
             return ("no stem", 404)
-        return send_file(state["stem_path"], mimetype="audio/wav")
+        # send_file は相対パスをappパッケージ基準で解決するため、絶対パスに直す
+        return send_file(os.path.abspath(state["stem_path"]), mimetype="audio/wav")
 
     return app

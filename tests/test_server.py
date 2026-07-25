@@ -26,3 +26,18 @@ def test_post_export_musicxml():
     r = _client().post("/export/musicxml", json=grid)
     assert r.status_code == 200
     assert "<score-partwise" in r.get_data(as_text=True)
+
+
+def test_stem_serves_relative_path(tmp_path, monkeypatch):
+    # 相対パスでも配信できること（send_fileはapp基準で解決するため絶対化が必要）
+    (tmp_path / "d.wav").write_bytes(b"RIFF0000WAVE")
+    monkeypatch.chdir(tmp_path)
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": "d.wav"}
+    r = create_app(state).test_client().get("/stem")
+    assert r.status_code == 200
+
+
+def test_stem_missing_returns_404():
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None}
+    r = create_app(state).test_client().get("/stem")
+    assert r.status_code == 404

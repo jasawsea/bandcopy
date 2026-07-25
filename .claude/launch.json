@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "drum-editor",
+      "runtimeExecutable": "./venv/bin/python",
+      "runtimeArgs": ["run_editor.py", "audio/Yvv4RVQzIFk.mp3"],
+      "port": 5000
+    }
+  ]
+}
