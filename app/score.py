@@ -34,17 +34,22 @@ def pitched_part_from_midi(midi_path: str, clef_type: str, name: str):
 
 
 def build_full_score(parts: list, tempo: float):
-    """Part のリストを順に段として積んだ Score を返す。"""
+    """Part のリストを順に段として積んだ Score を返す。
+
+    テンポ標語はスコアでは最上段に1つあれば足りるため、各パートが持つ
+    重複を全て除き、先頭段にだけ付け直す。
+    """
     from music21 import stream
     from music21 import tempo as m21tempo
     sc = stream.Score()
     for p in parts:
+        for mm in list(p.recurse().getElementsByClass(m21tempo.MetronomeMark)):
+            mm.activeSite.remove(mm)
         sc.insert(0, p)
     if parts:
         first = parts[0]
-        if not list(first.recurse().getElementsByClass(m21tempo.MetronomeMark)):
-            target = first.recurse().getElementsByClass("Measure").first() or first
-            target.insert(0, m21tempo.MetronomeMark(number=round(tempo)))
+        target = first.recurse().getElementsByClass("Measure").first() or first
+        target.insert(0, m21tempo.MetronomeMark(number=round(tempo)))
     return sc
 
 
