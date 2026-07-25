@@ -199,8 +199,9 @@
   → `<フォルダ>/score/全パート_LvN.musicxml` と `_render/full_score.svg` を出力。
 - 確認：Reboundで4段（Vocal=ト音/Guitar=ト音8vb/Bass=ヘ音8vb/Drums=パーカッション）が
   小節線を揃えて縦に並ぶことを目視確認（`output/Yvv4RVQzIFk/_render/full_score.png`）。
-- 割り切り：ギター/鍵盤は1段（6音源分離htdemucs_6sで別段化は後）／ドラムはテンプレ／
-  PDFは後／コードはボーカル段に載せる仕組みは実装済み（CLIは未指定時コードなし）。
+- 割り切り：ギター/鍵盤は1段（6音源分離htdemucs_6sで別段化は後）／ドラムはテンプレ／PDFは後。
+- **コード表示**：`score_all.py --audio <音源>` で detect_chords を走らせ、ボーカル段の上に
+  コードを載せる（例：B7｜E｜EMaj7｜C#Maj7｜F#sus4…）。音源未指定ならコードなし。
 
 ### 現在の中断ポイント（2026-07-25 更新）
 - 評価：分離音源◎／楽譜はテンポ・音部記号・オクターブclef・コード付与で実用度up。GO。

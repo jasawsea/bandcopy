@@ -50,3 +50,15 @@ def test_assemble_full_score_order_and_clefs(tmp_path):
     # 最下段はパーカッション音部記号
     drum = sc.parts[-1]
     assert list(drum.recurse().getElementsByClass(clef.PercussionClef))
+
+
+def test_assemble_full_score_inserts_chords_on_vocals(tmp_path):
+    from app.score import assemble_full_score
+    from app.grid import make_template_grid
+    from music21 import harmony
+    midi_paths = {"vocals": _tiny_midi(tmp_path, "v.mid")}
+    grid = make_template_grid(100.0, 1)
+    sc = assemble_full_score(midi_paths, grid, 100.0, chords=["C"])
+    vocal = sc.parts[0]
+    assert list(vocal.recurse().getElementsByClass(harmony.ChordSymbol))
+
