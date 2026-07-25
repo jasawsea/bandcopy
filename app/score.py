@@ -31,3 +31,24 @@ def pitched_part_from_midi(midi_path: str, clef_type: str, name: str):
     part.partName = name
     part.partAbbreviation = name
     return part
+
+
+def build_full_score(parts: list, tempo: float):
+    """Part のリストを順に段として積んだ Score を返す。"""
+    from music21 import stream
+    from music21 import tempo as m21tempo
+    sc = stream.Score()
+    for p in parts:
+        sc.insert(0, p)
+    if parts:
+        first = parts[0]
+        if not list(first.recurse().getElementsByClass(m21tempo.MetronomeMark)):
+            target = first.recurse().getElementsByClass("Measure").first() or first
+            target.insert(0, m21tempo.MetronomeMark(number=round(tempo)))
+    return sc
+
+
+def score_to_musicxml(sc) -> str:
+    """統合スコアを MusicXML 文字列に変換する。"""
+    from music21.musicxml.m21ToXml import GeneralObjectExporter
+    return GeneralObjectExporter(sc).parse().decode("utf-8")
