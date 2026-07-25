@@ -1,4 +1,5 @@
 from app.grid import make_template_grid, grid_to_musicxml
+from app.analyze import count_bars
 
 
 def test_template_grid_shape_and_backbeat():
@@ -32,3 +33,10 @@ def test_grid_to_musicxml_has_percussion_and_xhead():
     assert xml.count("<measure") == 1
     # 打楽器なので unpitched（音程なし）で書かれる
     assert "<unpitched" in xml
+
+
+def test_count_bars_rounds_up():
+    # テンポ120 → 1小節=2秒。7秒は3.5小節ぶん → 切り上げ4小節
+    assert count_bars(duration_sec=7.0, tempo=120.0) == 4
+    # ちょうど割り切れる場合
+    assert count_bars(duration_sec=8.0, tempo=120.0) == 4
