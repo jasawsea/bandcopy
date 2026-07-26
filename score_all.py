@@ -49,6 +49,39 @@ def resolve_parts(midi_dir, level: int):
     return _collect(six), six
 
 
+def build_full_score_musicxml(root, level, tempo=None, audio=None,
+                              drum_grid_override=None):
+    """出力フォルダから全パート統合スコアの MusicXML を組み立てて返す。
+
+    CLI(main) と Web アプリ(app/webapp.py) の共通処理。戻り値は
+    (xml, six, bars, tempo, part_count)。MIDIが無ければ xml=None。
+    """
+    root = Path(root)
+    midi_dir = root / "midi"
+    midi_paths, six = resolve_parts(midi_dir, level)
+    if not midi_paths:
+        return None, six, 0, tempo, 0
+
+    if tempo is None:
+        any_mid = next(iter(midi_paths.values()))
+        _, tempi = pretty_midi.PrettyMIDI(any_mid).get_tempo_changes()
+        tempo = float(tempi[0]) if len(tempi) else 120.0
+
+    end = 0.0
+    for p in midi_paths.values():
+        end = max(end, pretty_midi.PrettyMIDI(p).get_end_time())
+    bars = count_bars(end, tempo)
+    drum_grid = resolve_drum_grid(root, tempo, bars, override=drum_grid_override)
+
+    chords = None
+    if audio:
+        from bandcopy import detect_chords
+        chords = detect_chords(Path(audio).expanduser().resolve(), tempo)
+
+    sc = assemble_full_score(midi_paths, drum_grid, tempo, chords=chords, six=six)
+    return score_to_musicxml(sc), six, bars, tempo, len(sc.parts)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir", help="曲の出力フォルダ（例: output/Yvv4RVQzIFk）")
@@ -64,35 +97,12 @@ def main():
     args = ap.parse_args()
 
     root = Path(args.outdir).resolve()
-    midi_dir = root / "midi"
-    midi_paths, six = resolve_parts(midi_dir, args.level)
-    if not midi_paths:
-        print(f"簡略化MIDIが見つかりません: {midi_dir}")
+    xml, six, bars, tempo, n_parts = build_full_score_musicxml(
+        root, args.level, tempo=args.tempo, audio=args.audio,
+        drum_grid_override=args.drum_grid)
+    if xml is None:
+        print(f"簡略化MIDIが見つかりません: {root / 'midi'}")
         return
-
-    # テンポ：未指定ならMIDIの先頭テンポを読む
-    tempo = args.tempo
-    if tempo is None:
-        any_mid = next(iter(midi_paths.values()))
-        _, tempi = pretty_midi.PrettyMIDI(any_mid).get_tempo_changes()
-        tempo = float(tempi[0]) if len(tempi) else 120.0
-
-    # 小節数：最長MIDIの終端から算出し、ドラム段のグリッドを決める
-    # （エディタで保存した drum_grid.json があればそれ、無ければテンプレ）
-    end = 0.0
-    for p in midi_paths.values():
-        end = max(end, pretty_midi.PrettyMIDI(p).get_end_time())
-    bars = count_bars(end, tempo)
-    drum_grid = resolve_drum_grid(root, tempo, bars, override=args.drum_grid)
-
-    # 音源が指定されればコードを検出してボーカル段に載せる
-    chords = None
-    if args.audio:
-        from bandcopy import detect_chords
-        chords = detect_chords(Path(args.audio).expanduser().resolve(), tempo)
-
-    sc = assemble_full_score(midi_paths, drum_grid, tempo, chords=chords, six=six)
-    xml = score_to_musicxml(sc)
 
     score_dir = root / "score"
     score_dir.mkdir(exist_ok=True)
@@ -107,7 +117,7 @@ def main():
     grid_json = Path(args.drum_grid) if args.drum_grid else root / "drum_grid.json"
     drum_src = "編集グリッド" if grid_json.exists() else "テンプレート"
     mode = "6分離" if six else "4分離"
-    print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {len(sc.parts)}（{mode}・ドラム:{drum_src}）")
+    print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {n_parts}（{mode}・ドラム:{drum_src}）")
     print(f"MusicXML: {xml_path}")
     print(f"SVG     : {svg_path}")
 

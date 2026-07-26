@@ -306,6 +306,29 @@ verovioがMusicXMLのタブ（TAB音部記号＋technical string/fret）を描�
   クリーンなギターならより素直。運指は最適保証なしのheuristic（人が2割直す前提）。奏法記号なし。
 - gitブランチ `tab-output`。
 
+### Web公開化（Colab＋Gradio）を実装（2026-07-26）
+非エンジニアが「音源アップロード→ボタン→楽譜/タブ/音源をDL」で使えるWeb UI。
+段階A（各自が自分のColab無料GPUで自分の音源を処理）＝現方針「個人練習・手持ち音源」
+の権利姿勢そのまま・固定費0・あなたのサーバに他人の音源を載せない。
+- **パイプライン関数化**：`bandcopy.py` に `run_pipeline(audio, out_root, level, six...)` を
+  抽出（main と webapp が共用）。`score_all.py` に `build_full_score_musicxml(root, level...)`
+  を抽出（同上）。CLIの挙動は不変（回帰確認済み）。
+- **Gradio UI（`app/webapp.py`）**：`build_ui()` が Blocks を返す。音源＋難易度＋6分離
+  →`run_pipeline`→バンド譜PDF＋ギター/ベースのタブPDF＋分離音源zip＋プレビュー画像。
+  `_zip_dir` で stems を zip 化。
+- **起動**：ローカル `./venv/bin/python webapp.py`（http://127.0.0.1:7860）。
+  Colab は `bandcopy_colab.ipynb`（①clone＋pip ②`build_ui().launch(share=True)`）。
+  `share=True` の一時公開URLを配れば他人はColab操作なしでブラウザだけで使える
+  （URLはセッション稼働中のみ）。ColabのGPUで分離は1曲1分級。
+- **依存**：requirements に gradio==6.20.0 追加。
+- **テスト**：_zip_dir 2本＋build_ui smoke 1本。全66緑。
+- **実機検証**：`process('audio/Yvv4RVQzIFk.mp3')` 直接実行でバンド譜PDF(428KB)・
+  タブ2種・分離音源zip(18.7MB)・プレビュー生成を確認。Gradio UIをローカル起動し
+  フォーム描画を確認（アップロード欄・スライダー・6分離・楽譜を作るボタン）。
+- **未了**：GitHub公開（Colabのclone元）。ノートの `REPO_URL` は公開時に差し替え要。
+- 割り切り：認証/保存/課金なし（使い捨てColabセッション）。1曲ずつ。
+- gitブランチ `web-publish`。
+
 ### 現在の中断ポイント（2026-07-25 一区切り）
 今日ここまで到達。すべて `master` にマージ済み・全13テスト緑。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。

@@ -264,6 +264,96 @@ def midi_to_musicxml(midi_path: Path, xml_path: Path,
         return False
 
 
+def run_pipeline(audio_path, out_root, level=3, six=False, parts=None,
+                 tempo=None, keep_stems=True, no_chords=False):
+    """分離→採譜→簡略化→楽譜(MIDI/MusicXML) を実行し、出力パス一式を返す。
+
+    CLI(main) と Web アプリ(app/webapp.py) の共通処理。out_root はこの曲の
+    出力フォルダ（例 output/<曲名> や一時フォルダ）。戻り値は各出力の場所。
+    """
+    audio_path = Path(audio_path).expanduser().resolve()
+    out_root = Path(out_root)
+    spec = spec_map(six)
+    if parts is None:
+        parts = default_parts(six)
+
+    work_dir = out_root / "_work"
+    stems_dir = out_root / "stems"
+    midi_dir = out_root / "midi"
+    score_dir = out_root / "score"
+    for d in (work_dir, stems_dir, midi_dir, score_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 56)
+    print(f"  対象曲   : {audio_path.name}")
+    print(f"  難易度   : レベル{level}（{PROFILES[level].label}）")
+    print(f"  分離     : {'6分離（ギター/鍵盤を別段）' if six else '4分離'}")
+    print(f"  採譜対象 : {', '.join(spec[p].label for p in parts)}")
+    print("=" * 56)
+
+    # --- テンポ検出 ---
+    if not tempo:
+        tempo = detect_tempo(audio_path)
+
+    # --- コード検出（伴奏パートを採譜する場合のみ）---
+    chord_key = chord_part_key(six)
+    chords = None
+    if not no_chords and chord_key in parts:
+        chords = detect_chords(audio_path, tempo)
+
+    # --- パート分離 ---
+    stems = separate_stems(audio_path, work_dir, six)
+
+    # 分離音源を練習用にコピー（ドラムは常に残す：耳コピの参考になるため）
+    for part, wav in stems.items():
+        if keep_stems or not spec[part].transcribe or part in parts:
+            shutil.copy(wav, stems_dir / f"{spec[part].label}.wav")
+
+    result = {
+        "out_root": out_root, "stems_dir": stems_dir, "midi_dir": midi_dir,
+        "score_dir": score_dir, "tempo": tempo, "level": level, "six": six,
+        "parts": [],
+    }
+
+    # --- 採譜 + 簡略化 + 楽譜化 ---
+    import pretty_midi  # noqa: F401  （basic_pitch 経由で使用）
+
+    targets = [p for p in parts if spec[p].transcribe and p in stems]
+    if not targets:
+        print("\n採譜できるパートがありませんでした。")
+        return result
+
+    print(f"[2/4] 採譜中（{len(targets)}パート）...")
+    results = {}
+    for part in targets:
+        print(f"      → {spec[part].label} を採譜中...")
+        try:
+            results[part] = transcribe(stems[part], part)
+        except Exception as e:
+            print(f"      ! {spec[part].label} の採譜に失敗: {e}")
+
+    print(f"[3/4] 難易度レベル{level}に簡略化中...")
+    for part, pm in results.items():
+        print(f"      → {spec[part].label}")
+        raw_path = midi_dir / f"{spec[part].label}_原曲どおり.mid"
+        write_midi_with_tempo(pm, raw_path, tempo)
+        simplify_midi(pm, level, tempo, keep=spec[part].keep)
+        simple_path = midi_dir / f"{spec[part].label}_Lv{level}.mid"
+        write_midi_with_tempo(pm, simple_path, tempo)
+
+    print("[4/4] 楽譜（MusicXML）に変換中...")
+    for part in results:
+        mid = midi_dir / f"{spec[part].label}_Lv{level}.mid"
+        xml = score_dir / f"{spec[part].label}_Lv{level}.musicxml"
+        part_chords = chords if part == chord_key else None
+        if midi_to_musicxml(mid, xml, spec[part].clef, spec[part].name, part_chords):
+            print(f"      ✓ {xml.name}")
+
+    shutil.rmtree(work_dir, ignore_errors=True)  # 中間ファイルを削除
+    result["parts"] = list(results.keys())
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="曲を分離・採譜し、演奏しやすい難易度の楽譜にするツール"
@@ -303,94 +393,23 @@ def main():
 
     check_dependencies()
 
-    six = args.six
-    spec = spec_map(six)
-    if args.parts is None:
-        args.parts = default_parts(six)
-
     audio_path = Path(args.audio).expanduser().resolve()
     if not audio_path.exists():
         print(f"ファイルが見つかりません: {audio_path}")
         sys.exit(1)
 
     out_root = Path(args.outdir).resolve() / audio_path.stem
-    work_dir = out_root / "_work"
-    stems_dir = out_root / "stems"
-    midi_dir = out_root / "midi"
-    score_dir = out_root / "score"
-    for d in (work_dir, stems_dir, midi_dir, score_dir):
-        d.mkdir(parents=True, exist_ok=True)
-
-    print("=" * 56)
-    print(f"  対象曲   : {audio_path.name}")
-    print(f"  難易度   : レベル{args.level}（{PROFILES[args.level].label}）")
-    print(f"  分離     : {'6分離（ギター/鍵盤を別段）' if six else '4分離'}")
-    print(f"  採譜対象 : {', '.join(spec[p].label for p in args.parts)}")
-    print("=" * 56)
-
-    # --- テンポ検出 ---
-    tempo = args.tempo if args.tempo else detect_tempo(audio_path)
-
-    # --- コード検出（伴奏パートを採譜する場合のみ）---
-    chord_key = chord_part_key(six)
-    chords = None
-    if not args.no_chords and chord_key in args.parts:
-        chords = detect_chords(audio_path, tempo)
-
-    # --- パート分離 ---
-    stems = separate_stems(audio_path, work_dir, six)
-
-    # 分離音源を練習用にコピー（ドラムは常に残す：耳コピの参考になるため）
-    for part, wav in stems.items():
-        if args.keep_stems or not spec[part].transcribe or part in args.parts:
-            shutil.copy(wav, stems_dir / f"{spec[part].label}.wav")
-
-    # --- 採譜 + 簡略化 + 楽譜化 ---
-    import pretty_midi  # noqa: F401  （basic_pitch 経由で使用）
-
-    targets = [p for p in args.parts if spec[p].transcribe and p in stems]
-    if not targets:
-        print("\n採譜できるパートがありませんでした。")
-        return
-
-    print(f"[2/4] 採譜中（{len(targets)}パート）...")
-    results = {}
-    for part in targets:
-        print(f"      → {spec[part].label} を採譜中...")
-        try:
-            results[part] = transcribe(stems[part], part)
-        except Exception as e:
-            print(f"      ! {spec[part].label} の採譜に失敗: {e}")
-
-    print(f"[3/4] 難易度レベル{args.level}に簡略化中...")
-    for part, pm in results.items():
-        print(f"      → {spec[part].label}")
-
-        # 原曲どおりのMIDIも保存しておく（比較・手直し用）
-        raw_path = midi_dir / f"{spec[part].label}_原曲どおり.mid"
-        write_midi_with_tempo(pm, raw_path, tempo)
-
-        simplify_midi(pm, args.level, tempo, keep=spec[part].keep)
-
-        simple_path = midi_dir / f"{spec[part].label}_Lv{args.level}.mid"
-        write_midi_with_tempo(pm, simple_path, tempo)
-
-    print("[4/4] 楽譜（MusicXML）に変換中...")
-    for part in results:
-        mid = midi_dir / f"{spec[part].label}_Lv{args.level}.mid"
-        xml = score_dir / f"{spec[part].label}_Lv{args.level}.musicxml"
-        part_chords = chords if part == chord_key else None
-        if midi_to_musicxml(mid, xml, spec[part].clef, spec[part].name, part_chords):
-            print(f"      ✓ {xml.name}")
-
-    # 中間ファイルを削除
-    shutil.rmtree(work_dir, ignore_errors=True)
+    result = run_pipeline(
+        audio_path, out_root, level=args.level, six=args.six,
+        parts=args.parts, tempo=args.tempo,
+        keep_stems=args.keep_stems, no_chords=args.no_chords,
+    )
 
     print("\n" + "=" * 56)
     print("完了しました。")
-    print(f"  分離音源 : {stems_dir}")
-    print(f"  MIDI     : {midi_dir}")
-    print(f"  楽譜     : {score_dir}")
+    print(f"  分離音源 : {result['stems_dir']}")
+    print(f"  MIDI     : {result['midi_dir']}")
+    print(f"  楽譜     : {result['score_dir']}")
     print("\n楽譜ファイル（.musicxml）は MuseScore で開けます。")
     print("難易度が合わない場合は --level の数字を変えて再実行してください。")
     print("=" * 56)
