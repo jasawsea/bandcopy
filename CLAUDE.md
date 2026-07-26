@@ -285,6 +285,27 @@
 - 割り切り：一方向（エディタ→スコア）。保存は明示ボタン。
 - gitブランチ `editor-score-link`。
 
+### タブ譜出力を実装（2026-07-26）
+ギター・ベースの弦/フレット表記（タブ譜）を出力。**PyGuitarProは不要**で、
+verovioがMusicXMLのタブ（TAB音部記号＋technical string/fret）を描けるため既存
+パイプラインに新規依存ゼロで乗せた。
+- **中核（`app/tab.py`）**：`TUNINGS`（guitar=EADGBE/bass=EADG、弦番号→開放MIDI）。
+  運指heuristic＝`choose_fingering`（低フレット優先＋直前位置の近く・音域外はオクターブ補正）、
+  `assign_chord`（同時音を別々の弦へ）。`midi_to_tab_musicxml` で MIDI→タブMusicXML。
+- **和音の要注意点**：music21の和音→タブ書き出しは複数和音で崩れる（string/fretを1音符に
+  詰め込み、verovioが -2147483647 を描く）。→ `chordify()`で単一声部化＋**MusicXMLを自前生成**
+  （music21のduration.type等は流用）して回避。maxs(technical内string数)=1で分配を確認。
+- **CLI（`tab.py`）**：`./venv/bin/python tab.py <出力フォルダ> [--level N] [--pdf]`。
+  ベース（ベース_LvN.mid）とギター（6分離ギター_LvN.mid を優先、無ければ4分離
+  ギター・キーボード等）を検出し、`<フォルダ>/tab/<ラベル>_tab_LvN.musicxml` ＋
+  `_render/<ラベル>_tab.svg`（--pdfでPDF）を出力。ピアノ/その他はタブ対象外。
+- **テスト**：運指/和音/midi_to_tab/CLI検出 で14本。全63緑。
+- **実機検証**：Rebound Lv3 で bass=4線タブ・guitar=6線タブ（和音は縦積みフレット）を描画。
+  パート名Bass/Guitar・-2147483647なし。
+- 既知：4分離の混在「ギター・キーボード等」は音域が広く高フレット(20超)が散見。6分離の
+  クリーンなギターならより素直。運指は最適保証なしのheuristic（人が2割直す前提）。奏法記号なし。
+- gitブランチ `tab-output`。
+
 ### 現在の中断ポイント（2026-07-25 一区切り）
 今日ここまで到達。すべて `master` にマージ済み・全13テスト緑。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。
