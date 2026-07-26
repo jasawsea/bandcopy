@@ -1,9 +1,35 @@
 const LANES = ["HH", "SN", "KK"];   // 上から表示
 let grid = null;
+const history = [];                 // 簡略化コマンド前のグリッドを積む（元に戻す用）
 
 async function loadGrid() {
   grid = await (await fetch("/grid")).json();
   drawGrid();
+}
+
+function updateUndoButton() {
+  document.getElementById("undo").disabled = history.length === 0;
+}
+
+// 簡略化コマンドを適用：現状を履歴に積み、サーバで変換して差し替え、譜面も更新
+async function applyCommand(command) {
+  history.push(JSON.parse(JSON.stringify(grid)));
+  updateUndoButton();
+  grid = await (await fetch("/simplify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command, grid }),
+  })).json();
+  drawGrid();
+  renderScore();
+}
+
+function undo() {
+  if (history.length === 0) return;
+  grid = history.pop();
+  updateUndoButton();
+  drawGrid();
+  renderScore();
 }
 
 function drawGrid() {
@@ -61,4 +87,7 @@ function togglePlay() {
 document.getElementById("render").addEventListener("click", renderScore);
 document.getElementById("export").addEventListener("click", exportXml);
 document.getElementById("play").addEventListener("click", togglePlay);
+document.getElementById("thin_kicks").addEventListener("click", () => applyCommand("thin_kicks"));
+document.getElementById("thin_hihat").addEventListener("click", () => applyCommand("thin_hihat"));
+document.getElementById("undo").addEventListener("click", undo);
 loadGrid();

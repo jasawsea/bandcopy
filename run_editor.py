@@ -32,8 +32,9 @@ def main():
             stem = None
 
     app = create_app({"grid": grid, "stem_path": stem})
-    print("http://127.0.0.1:5000 を開いてください")
-    app.run(port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"http://127.0.0.1:{port} を開いてください")
+    app.run(port=port, debug=False)
 
 
 if __name__ == "__main__":
