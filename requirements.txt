@@ -25,6 +25,9 @@ yt-dlp==2026.7.4        # 動画から音声抽出
 flask==3.1.0            # ローカルWebサーバ
 pytest==8.3.4           # テスト
 
+# 公開用 Web アプリ（Colab / ローカル。app/webapp.py・webapp.py）
+gradio==6.20.0          # アップロードUI（各自の音源→楽譜/タブ/音源）
+
 # --- 採譜バックエンドについて（重要） ---
 # basic-pitch は TensorFlow / CoreML / TFLite / ONNX の4形式のモデルを同梱するが、
 # TensorFlow 2.16 以降は内部が Keras 3 になり、同梱の TF版モデルを読み込めない。
