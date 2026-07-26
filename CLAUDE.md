@@ -329,27 +329,36 @@ verovioがMusicXMLのタブ（TAB音部記号＋technical string/fret）を描�
 - 割り切り：認証/保存/課金なし（使い捨てColabセッション）。1曲ずつ。
 - gitブランチ `web-publish`。
 
-### 現在の中断ポイント（2026-07-25 一区切り）
-今日ここまで到達。すべて `master` にマージ済み・全13テスト緑。検証素材は
+### 現在の中断ポイント（2026-07-27 更新・新チャット引き継ぎ用）
+すべて `master` にマージ済み・**全66テスト緑**・ワーキングツリークリーン。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。
 
-**できているもの**
-- 音程パート：採譜→簡略化→楽譜（音部記号・オクターブclef）→コード自動付与（CLI）
-- ドラム編集エディタ（ローカルWeb）：`./venv/bin/python run_editor.py <音源>`
-  → グリッド編集→ドラム譜→音源再生→MusicXML書き出し
-- 全パート統合スコア：`./venv/bin/python score_all.py <出力フォルダ> --audio <音源>`
-  → ボーカル/ギター/ベース/ドラムの4段＋コードを1枚に
+**7/26に7本完了（詳細は上の各セクション）**
+1. PDF書き出し（＋テンポ♩字形の□解消・Leipzigフォント同梱）
+2. ギター/鍵盤の別段化（`--six`＝htdemucs_6s）＋パート定義を `app/parts.py` に単一ソース化
+3. ドラム簡略化コマンド（キック間引き・ハイハットを軽く・元に戻す）＝エディタ内
+4. 未追跡コアファイルの追跡整理（.gitignore に .DS_Store/audio/*.wav 追加）
+5. エディタ→スコア連携（「スコア用に保存」→ drum_grid.json → score_all 自動拾い）
+6. タブ譜出力（`tab.py`＝ギター/ベース、MusicXML→verovio。PyGuitarPro不要）
+7. Web公開化（Colab＋Gradio。`webapp.py`ローカル／`bandcopy_colab.ipynb`）
 
-**次の一手候補（やっさん未決・お好きなときに）**
-1. PDF書き出し（verovio→SVG→cairosvgで簡単。印刷・共有用）
-2. ドラムの簡略化コマンド（ダブルキック単発化等。ドラマーの「叩けない」を楽にする本丸）
-   ※これが活きるには複雑なパターン入力が要る＝手打ち or 自動採譜(ADT)が前提
-3. ギター/鍵盤を別段に（Demucs 6音源 htdemucs_6s）
-4. エディタ↔スコア連携（編集したドラムを統合スコアに反映）
+**主なコマンド（現状）**
+- CLI一括：`./venv/bin/python bandcopy.py <音源> --level 3 [--six]`（run_pipeline）
+- 統合スコア：`./venv/bin/python score_all.py <出力フォルダ> --audio <音源> [--pdf]`
+- タブ譜：`./venv/bin/python tab.py <出力フォルダ> --level 3 [--pdf]`
+- ドラムエディタ：`PORT=5050 EDITOR_STEM=<ドラムwav> ./venv/bin/python run_editor.py <音源>`
+- Web UI（ローカル）：`./venv/bin/python webapp.py` → http://127.0.0.1:7860
 
-**未着手の大物**
-- タスク1：タブ譜出力（PyGuitarPro・運指最適化）
-- 自動ドラム採譜（ADT）：素朴DIYは不可を確認済み。NMF or 専用モデル(隔離venv)が要る
-- Webアプリ公開化（アップロードUI・ホスティング。現状はローカル版）
+**未了・次の一手**
+- **GitHub公開（ユーザー作業待ち）**：Colabのclone元。手順＝github.comで`bandcopy`をPublic作成
+  →URLを共有→こちらでノートの `REPO_URL` 差し替え＋remote設定→push（認証は康さん）。
+  ※`gh`未導入。音源は.gitignore済みで公開されるのはコードのみ。
+- **自動ドラム採譜(ADT)＝最後の大物**：素朴DIYは不可を確認済み（NMF分解 or 専用モデルを
+  隔離venvで）。これが入ると「自動下書き→エディタで直す→スコア反映」の本命ループが完成。
+  ドラム簡略化コマンド(#3)・エディタ→スコア連携(#5)は既に整備済みなので、ADTの下書きが
+  刺されば直結する。
 
-※ フル尺・実曲での検証はまだ（35秒クリップでの通し確認まで）。
+**既知の限界（引き継ぎ注意）**
+- フル尺・多数の実曲での検証はまだ（35秒クリップ中心）。
+- タブの運指は heuristic（最適保証なし）。4分離の混在ギターは高フレットが散見。
+- 採譜精度7〜8割前提（AIが8割・人が2割直す設計）。
