@@ -220,6 +220,29 @@
   ※ ttf生成には fonttools＋brotli を使用（ttfは同梱済みなので実行時は不要）。
 - gitブランチ `pdf-export`。
 
+### ギター/鍵盤の別段化を実装（2026-07-26）
+`--six`（htdemucs_6s＝6分離）で、従来1段だった「ギター・キーボード等(other)」を
+**ギター/キーボード(piano)/その他(other残り)** の3段に分ける機能を追加。オプトイン。
+- **パート定義を単一ソース化**：`app/parts.py` 新設（`PartSpec` に label/name/clef/keep/
+  transcribe を集約）。4分離(`_FOUR_STEM`)と6分離(`_SIX_STEM`)の2テーブル。
+  従来 bandcopy.py・app/score.py・score_all.py に散在していた PART_LABELS /
+  KEEP_STRATEGY / CLEF_STRATEGY / NO_TRANSCRIBE / CHORD_PART / PITCHED_ORDER /
+  LABEL_MAP を全廃し、ここを参照する形に統一。
+- **段構成（6分離）**：Vocal(ト音) / Guitar(ト音8vb) / Keys=piano(ト音) /
+  Other=残り(ト音) / Bass(ヘ音8vb) / Drums。コードは Guitar 段に載せる
+  （4分離時は従来どおり other、統合スコアは従来どおりボーカル段）。
+- **bandcopy.py**：`--six` 追加。`demucs_cmd()`/`default_parts()` を関数化。
+  `separate_stems(…, six)` でモデルとステム名を切替。
+- **score_all.py**：`resolve_parts()` 新設。midi に「ギター_LvN.mid」があれば6分離と
+  自動判定し段順を組む（フラグ不要）。`assemble_full_score(…, six)`。
+- **テスト**：test_parts / test_score(6段) / test_score_all(自動判定) / test_bandcopy
+  を追加。全27テスト緑。
+- **実機検証**：Rebound35秒で `bandcopy.py --six` を通し、htdemucs_6s が
+  guitar/piano/other を別ステム出力→5パート採譜→6段スコアを描画（段数6・段順・
+  音部記号・コード・♩=86 を目視確認）。Other段は残りシンセで密＝簡略化レベルの領域。
+- 割り切り：piano は単段（グランドスタッフ化はしない）。分離品質・空段リスクは
+  オプトインで受容。gitブランチ `six-stem-guitar-piano`。
+
 ### 現在の中断ポイント（2026-07-25 一区切り）
 今日ここまで到達。すべて `master` にマージ済み・全13テスト緑。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。
