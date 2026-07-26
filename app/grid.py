@@ -26,6 +26,26 @@ def make_template_grid(tempo: float, bars: int, steps_per_bar: int = 16) -> dict
     }
 
 
+def fit_grid_to_bars(grid: dict, bars: int) -> dict:
+    """グリッドを指定小節数に合わせた新グリッドを返す（元は非破壊）。
+
+    短ければ末尾を空小節（0）でパディング、長ければ切り詰める。統合スコアの
+    小節数に揃えて、ドラム段が音程段と縦に並ぶようにするために使う。
+    """
+    spb = grid["steps_per_bar"]
+    n = bars * spb
+    lanes = {}
+    for lane, arr in grid["lanes"].items():
+        if len(arr) >= n:
+            lanes[lane] = list(arr[:n])
+        else:
+            lanes[lane] = list(arr) + [0] * (n - len(arr))
+    out = dict(grid)
+    out["bars"] = bars
+    out["lanes"] = lanes
+    return out
+
+
 # レーンごとの記譜位置（displayStep, displayOctave, notehead）
 LANE_NOTATION = {
     "KK": ("F", 4, None),   # キック：下第1間

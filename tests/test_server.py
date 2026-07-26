@@ -63,3 +63,24 @@ def test_simplify_unknown_command_returns_400():
     grid = make_template_grid(100.0, 1)
     r = _client().post("/simplify", json={"command": "nope", "grid": grid})
     assert r.status_code == 400
+
+
+def test_save_grid_writes_json_file(tmp_path):
+    import json
+    save_path = tmp_path / "drum_grid.json"
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None,
+             "grid_save_path": str(save_path)}
+    grid = make_template_grid(100.0, 1)
+    grid["lanes"]["KK"] = [1, 1, 0, 0] + [0] * 12
+    r = create_app(state).test_client().post("/save-grid", json=grid)
+    assert r.status_code == 200
+    assert save_path.exists()
+    saved = json.loads(save_path.read_text())
+    assert saved["lanes"]["KK"] == [1, 1, 0, 0] + [0] * 12
+
+
+def test_save_grid_without_configured_path_returns_400():
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None}
+    r = create_app(state).test_client().post("/save-grid",
+                                             json=make_template_grid(100.0, 1))
+    assert r.status_code == 400

@@ -268,6 +268,23 @@
   純関数なので将来CLIから再利用可）。キック間引きは連続ステップの塊が対象。
 - gitブランチ `drum-simplify-commands`。
 
+### エディタ→スコア連携を実装（2026-07-26）
+エディタで編集したドラムを統合スコア(score_all)に反映（自動拾い方式・一方向）。
+- **保存（エディタ側）**：ボタン「スコア用に保存」→ `POST /save-grid` →
+  `output/<音源stem>/drum_grid.json` に書き出し（保存先は `run_editor.py` が音源名から算出）。
+  保存後に画面へ保存先を表示。保存先未設定なら400。
+- **自動拾い（score_all）**：`resolve_drum_grid()` 新設。`<出力フォルダ>/drum_grid.json`
+  （または `--drum-grid <path>`）があればドラム段にそれを使い、無ければ従来テンプレ。
+  出力に「ドラム:編集グリッド／テンプレート」を表示。
+- **整合**：`app/grid.py` に `fit_grid_to_bars(grid, bars)` 追加。保存グリッドをスコアの
+  小節数に合わせ切り詰め／空小節パディング。テンポはスコアの単一テンポ。段が縦に揃う。
+- **テスト**：fit_grid_to_bars 4本／/save-grid 2本／resolve_drum_grid 3本。全49緑。
+- **実機検証**：エディタで「ハイハットを軽く」→「スコア用に保存」→ drum_grid.json に
+  HH4分が保存 → score_all が「ドラム:編集グリッド」で自動拾い → 統合スコアの
+  ドラム段が8分→4分に（他パートは不変）を before/after 描画で確認。
+- 割り切り：一方向（エディタ→スコア）。保存は明示ボタン。
+- gitブランチ `editor-score-link`。
+
 ### 現在の中断ポイント（2026-07-25 一区切り）
 今日ここまで到達。すべて `master` にマージ済み・全13テスト緑。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。

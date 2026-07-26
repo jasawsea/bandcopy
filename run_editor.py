@@ -31,7 +31,14 @@ def main():
             print(f"分離に失敗（再生なしで続行）: {e}")
             stem = None
 
-    app = create_app({"grid": grid, "stem_path": stem})
+    # 「スコア用に保存」の保存先。bandcopy の既定出力 output/<音源stem>/ に合わせる。
+    grid_save_path = Path("output") / Path(audio).stem / "drum_grid.json"
+
+    app = create_app({
+        "grid": grid,
+        "stem_path": stem,
+        "grid_save_path": str(grid_save_path),
+    })
     port = int(os.environ.get("PORT", 5000))
     print(f"http://127.0.0.1:{port} を開いてください")
     app.run(port=port, debug=False)
