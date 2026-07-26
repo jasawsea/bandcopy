@@ -52,6 +52,28 @@ def test_assemble_full_score_order_and_clefs(tmp_path):
     assert list(drum.recurse().getElementsByClass(clef.PercussionClef))
 
 
+def test_assemble_six_stem_order_and_names(tmp_path):
+    from app.score import assemble_full_score
+    from app.grid import make_template_grid
+    from music21 import clef
+    midi_paths = {
+        "vocals": _tiny_midi(tmp_path, "v.mid"),
+        "guitar": _tiny_midi(tmp_path, "g.mid"),
+        "piano": _tiny_midi(tmp_path, "p.mid"),
+        "other": _tiny_midi(tmp_path, "o.mid"),
+        "bass": _tiny_midi(tmp_path, "b.mid"),
+    }
+    grid = make_template_grid(100.0, 2)
+    sc = assemble_full_score(midi_paths, grid, 100.0, six=True)
+    assert [p.partName for p in sc.parts] == [
+        "Vocal", "Guitar", "Keys", "Other", "Bass", "Drums"]
+    # Keys段はト音記号（8vbではない）
+    keys = sc.parts[2]
+    clefs = list(keys.recurse().getElementsByClass(clef.Clef))
+    assert any(isinstance(c, clef.TrebleClef) and not isinstance(
+        c, clef.Treble8vbClef) for c in clefs)
+
+
 def test_assemble_full_score_inserts_chords_on_vocals(tmp_path):
     from app.score import assemble_full_score
     from app.grid import make_template_grid

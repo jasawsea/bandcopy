@@ -10,13 +10,29 @@ from app.score import assemble_full_score, score_to_musicxml
 from app.render import musicxml_to_svg, musicxml_to_pdf
 from app.grid import make_template_grid
 from app.analyze import count_bars
+from app.parts import specs, spec_map
 
-# 出力フォルダ内のMIDIファイル名（既存パイプラインの日本語ラベル）
-LABEL_MAP = {
-    "vocals": "ボーカル",
-    "other": "ギター・キーボード等",
-    "bass": "ベース",
-}
+
+def resolve_parts(midi_dir, level: int):
+    """MIDIフォルダを見て (key→MIDIパス, 6分離か) を返す。
+
+    6分離のギター(「ギター」ラベル)のMIDIがあれば6分離と判定し、その段構成で
+    存在するMIDIだけ集める。無ければ4分離の段構成で集める。
+    """
+    midi_dir = Path(midi_dir)
+
+    def _collect(six: bool) -> dict:
+        found = {}
+        for s in specs(six):
+            if not s.transcribe:
+                continue
+            p = midi_dir / f"{s.label}_Lv{level}.mid"
+            if p.exists():
+                found[s.key] = str(p)
+        return found
+
+    six = (midi_dir / f"{spec_map(True)['guitar'].label}_Lv{level}.mid").exists()
+    return _collect(six), six
 
 
 def main():
@@ -32,11 +48,7 @@ def main():
 
     root = Path(args.outdir).resolve()
     midi_dir = root / "midi"
-    midi_paths = {}
-    for key, label in LABEL_MAP.items():
-        p = midi_dir / f"{label}_Lv{args.level}.mid"
-        if p.exists():
-            midi_paths[key] = str(p)
+    midi_paths, six = resolve_parts(midi_dir, args.level)
     if not midi_paths:
         print(f"簡略化MIDIが見つかりません: {midi_dir}")
         return
@@ -61,7 +73,7 @@ def main():
         from bandcopy import detect_chords
         chords = detect_chords(Path(args.audio).expanduser().resolve(), tempo)
 
-    sc = assemble_full_score(midi_paths, drum_grid, tempo, chords=chords)
+    sc = assemble_full_score(midi_paths, drum_grid, tempo, chords=chords, six=six)
     xml = score_to_musicxml(sc)
 
     score_dir = root / "score"
@@ -74,7 +86,8 @@ def main():
     svg_path = render_dir / "full_score.svg"
     svg_path.write_text(musicxml_to_svg(xml), encoding="utf-8")
 
-    print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {len(sc.parts)}")
+    mode = "6分離" if six else "4分離"
+    print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {len(sc.parts)}（{mode}）")
     print(f"MusicXML: {xml_path}")
     print(f"SVG     : {svg_path}")
 

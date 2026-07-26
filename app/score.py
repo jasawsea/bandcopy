@@ -1,11 +1,11 @@
 """全パートを1枚のスコア譜に統合する。"""
 
-# 段（上→下）の (キー, 音部記号タイプ, 楽器名)。ドラムは別途 grid から積む。
-PITCHED_ORDER = [
-    ("vocals", "treble", "Vocal"),
-    ("other", "treble8vb", "Guitar"),
-    ("bass", "bass8vb", "Bass"),
-]
+from app.parts import specs
+
+
+def _pitched_order(six: bool):
+    """段（上→下）の (キー, 音部記号タイプ, 楽器名)。ドラムは別途 grid から積む。"""
+    return [(s.key, s.clef, s.name) for s in specs(six) if s.transcribe]
 
 
 def _clef_for(clef_type: str):
@@ -60,13 +60,16 @@ def score_to_musicxml(sc) -> str:
 
 
 def assemble_full_score(midi_paths: dict, drum_grid: dict, tempo: float,
-                        chords: list = None):
-    """音程3段（存在するもの）＋ドラム段を組み立てて Score を返す。"""
+                        chords: list = None, six: bool = False):
+    """音程段（存在するもの）＋ドラム段を組み立てて Score を返す。
+
+    six=True で 6分離（Vocal/Guitar/Keys/Other/Bass）の段順・音部記号を使う。
+    """
     from music21 import harmony
     from app.grid import grid_to_score
 
     parts = []
-    for key, clef_type, name in PITCHED_ORDER:
+    for key, clef_type, name in _pitched_order(six):
         path = midi_paths.get(key)
         if not path:
             continue
