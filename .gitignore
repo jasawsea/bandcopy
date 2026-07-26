@@ -3,3 +3,11 @@ output/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# macOS
+.DS_Store
+
+# 大きなメディア（再取得/再生成できるため追跡しない）
+#   audio/*.mp3 は getaudio.py で再取得、test30.wav は合成音で再生成可
+audio/
+*.wav
