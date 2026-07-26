@@ -5,6 +5,13 @@ from flask import Flask, jsonify, request, Response, send_file, render_template
 
 from app.grid import grid_to_musicxml
 from app.render import musicxml_to_svg
+from app.drum_simplify import thin_kicks, thin_hihat
+
+# エディタの簡略化コマンド名 → 変換関数
+SIMPLIFY_COMMANDS = {
+    "thin_kicks": thin_kicks,
+    "thin_hihat": thin_hihat,
+}
 
 
 def create_app(state: dict) -> Flask:
@@ -23,6 +30,14 @@ def create_app(state: dict) -> Flask:
         grid = request.get_json(force=True)
         svg = musicxml_to_svg(grid_to_musicxml(grid))
         return Response(svg, mimetype="image/svg+xml")
+
+    @app.post("/simplify")
+    def simplify():
+        body = request.get_json(force=True)
+        fn = SIMPLIFY_COMMANDS.get(body.get("command"))
+        if fn is None:
+            return (jsonify({"error": "unknown command"}), 400)
+        return jsonify(fn(body["grid"]))
 
     @app.post("/export/musicxml")
     def export_musicxml():

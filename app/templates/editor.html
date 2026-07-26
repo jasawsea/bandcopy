@@ -12,6 +12,12 @@
     <button id="render">譜面にする</button>
     <button id="export">MusicXML書き出し</button>
   </div>
+  <div id="commands">
+    <span class="cmd-label">簡略化：</span>
+    <button id="thin_kicks" title="連続キック（ダブルキック等）を単発にまとめる">キック間引き</button>
+    <button id="thin_hihat" title="ハイハットを1段階粗く（16分→8分→4分）">ハイハットを軽く</button>
+    <button id="undo" disabled>↩ 元に戻す</button>
+  </div>
   <audio id="audio" src="/stem" preload="none"></audio>
   <div id="grid"></div>
   <div id="score"></div>
