@@ -1,5 +1,7 @@
 """ローカルWebエディタのFlaskアプリ。HTTPの配線のみ。"""
+import json
 import os
+from pathlib import Path
 
 from flask import Flask, jsonify, request, Response, send_file, render_template
 
@@ -38,6 +40,17 @@ def create_app(state: dict) -> Flask:
         if fn is None:
             return (jsonify({"error": "unknown command"}), 400)
         return jsonify(fn(body["grid"]))
+
+    @app.post("/save-grid")
+    def save_grid():
+        path = state.get("grid_save_path")
+        if not path:
+            return (jsonify({"error": "保存先が設定されていません"}), 400)
+        grid = request.get_json(force=True)
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(grid, ensure_ascii=False), encoding="utf-8")
+        return jsonify({"saved": str(p)})
 
     @app.post("/export/musicxml")
     def export_musicxml():

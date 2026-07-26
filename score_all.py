@@ -2,15 +2,29 @@
 使い方: ./venv/bin/python score_all.py <出力フォルダ> [--level N] [--tempo N]
 """
 import argparse
+import json
 from pathlib import Path
 
 import pretty_midi
 
 from app.score import assemble_full_score, score_to_musicxml
 from app.render import musicxml_to_svg, musicxml_to_pdf
-from app.grid import make_template_grid
+from app.grid import make_template_grid, fit_grid_to_bars
 from app.analyze import count_bars
 from app.parts import specs, spec_map
+
+
+def resolve_drum_grid(root, tempo: float, bars: int, override: str = None):
+    """ドラム段に使うグリッドを決める。
+
+    エディタで保存した <root>/drum_grid.json（または override）があれば、それを
+    スコアの小節数に合わせて使う。無ければ従来のテンプレート（基本8ビート）。
+    """
+    path = Path(override) if override else Path(root) / "drum_grid.json"
+    if path.exists():
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        return fit_grid_to_bars(saved, bars)
+    return make_template_grid(tempo, bars)
 
 
 def resolve_parts(midi_dir, level: int):
@@ -44,6 +58,9 @@ def main():
                     help="原曲の音源。指定するとコードを検出しボーカル段に載せる")
     ap.add_argument("--pdf", action="store_true",
                     help="印刷・共有用にPDFも書き出す")
+    ap.add_argument("--drum-grid", default=None,
+                    help="ドラム段に使うグリッドJSON。省略時は <出力フォルダ>/drum_grid.json "
+                         "があればそれ、無ければテンプレート")
     args = ap.parse_args()
 
     root = Path(args.outdir).resolve()
@@ -60,12 +77,13 @@ def main():
         _, tempi = pretty_midi.PrettyMIDI(any_mid).get_tempo_changes()
         tempo = float(tempi[0]) if len(tempi) else 120.0
 
-    # 小節数：最長MIDIの終端から算出し、ドラムのテンプレを作る
+    # 小節数：最長MIDIの終端から算出し、ドラム段のグリッドを決める
+    # （エディタで保存した drum_grid.json があればそれ、無ければテンプレ）
     end = 0.0
     for p in midi_paths.values():
         end = max(end, pretty_midi.PrettyMIDI(p).get_end_time())
     bars = count_bars(end, tempo)
-    drum_grid = make_template_grid(tempo, bars)
+    drum_grid = resolve_drum_grid(root, tempo, bars, override=args.drum_grid)
 
     # 音源が指定されればコードを検出してボーカル段に載せる
     chords = None
@@ -86,8 +104,10 @@ def main():
     svg_path = render_dir / "full_score.svg"
     svg_path.write_text(musicxml_to_svg(xml), encoding="utf-8")
 
+    grid_json = Path(args.drum_grid) if args.drum_grid else root / "drum_grid.json"
+    drum_src = "編集グリッド" if grid_json.exists() else "テンプレート"
     mode = "6分離" if six else "4分離"
-    print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {len(sc.parts)}（{mode}）")
+    print(f"テンポ {tempo:.1f} / {bars}小節 / 段数 {len(sc.parts)}（{mode}・ドラム:{drum_src}）")
     print(f"MusicXML: {xml_path}")
     print(f"SVG     : {svg_path}")
 

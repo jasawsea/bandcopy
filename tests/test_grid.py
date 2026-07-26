@@ -1,5 +1,38 @@
-from app.grid import make_template_grid, grid_to_musicxml
+from app.grid import make_template_grid, grid_to_musicxml, fit_grid_to_bars
 from app.analyze import count_bars
+
+
+def test_fit_grid_pads_with_empty_bars_when_shorter():
+    g = make_template_grid(tempo=120.0, bars=1)   # 16ステップ
+    out = fit_grid_to_bars(g, 3)
+    assert out["bars"] == 3
+    for lane in ("KK", "SN", "HH"):
+        assert len(out["lanes"][lane]) == 48        # 3小節ぶん
+        # 元の1小節目は保たれ、増えた分は空（0）
+        assert out["lanes"][lane][:16] == g["lanes"][lane]
+        assert out["lanes"][lane][16:] == [0] * 32
+
+
+def test_fit_grid_truncates_when_longer():
+    g = make_template_grid(tempo=120.0, bars=4)   # 64ステップ
+    out = fit_grid_to_bars(g, 2)
+    assert out["bars"] == 2
+    for lane in ("KK", "SN", "HH"):
+        assert len(out["lanes"][lane]) == 32
+        assert out["lanes"][lane] == g["lanes"][lane][:32]
+
+
+def test_fit_grid_same_bars_unchanged():
+    g = make_template_grid(tempo=120.0, bars=2)
+    out = fit_grid_to_bars(g, 2)
+    assert out["lanes"] == g["lanes"] and out["bars"] == 2
+
+
+def test_fit_grid_does_not_mutate_input():
+    g = make_template_grid(tempo=120.0, bars=2)
+    before = {k: list(v) for k, v in g["lanes"].items()}
+    fit_grid_to_bars(g, 5)
+    assert g["lanes"] == before and g["bars"] == 2
 
 
 def test_template_grid_shape_and_backbeat():

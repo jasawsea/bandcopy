@@ -79,6 +79,22 @@ async function exportXml() {
   URL.revokeObjectURL(url);
 }
 
+async function saveGrid() {
+  const msg = document.getElementById("save-msg");
+  const res = await fetch("/save-grid", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(grid),
+  });
+  if (res.ok) {
+    const data = await res.json();
+    msg.textContent = "✓ 保存しました: " + data.saved;
+  } else {
+    const data = await res.json().catch(() => ({}));
+    msg.textContent = "! 保存できません: " + (data.error || res.status);
+  }
+}
+
 function togglePlay() {
   const audio = document.getElementById("audio");
   if (audio.paused) audio.play(); else audio.pause();
@@ -86,6 +102,7 @@ function togglePlay() {
 
 document.getElementById("render").addEventListener("click", renderScore);
 document.getElementById("export").addEventListener("click", exportXml);
+document.getElementById("save").addEventListener("click", saveGrid);
 document.getElementById("play").addEventListener("click", togglePlay);
 document.getElementById("thin_kicks").addEventListener("click", () => applyCommand("thin_kicks"));
 document.getElementById("thin_hihat").addEventListener("click", () => applyCommand("thin_hihat"));
