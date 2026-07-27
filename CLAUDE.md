@@ -329,6 +329,17 @@ verovioがMusicXMLのタブ（TAB音部記号＋technical string/fret）を描�
 - 割り切り：認証/保存/課金なし（使い捨てColabセッション）。1曲ずつ。
 - gitブランチ `web-publish`。
 
+### GitHub公開 完了（2026-07-27）
+Colabのclone元となるPublicリポジトリを公開した。
+- **URL**：https://github.com/jasawsea/bandcopy （PUBLIC・ブランチ master）
+- **アカウント**：GitHubユーザー名 `jasawsea`（新規作成）。認証は `gh`（GitHub CLI・brew導入）で
+  `gh auth login`（ブラウザ認証）→ `gh repo create bandcopy --public --source=. --push`。
+- **追加ファイル**：`README.md`（概要・セットアップ・使い方・権利注意）／`LICENSE`（MIT・著作者 鴫原康）。
+- **ノート差し替え**：`bandcopy_colab.ipynb` の `REPO_URL` を実URLに更新済み＝そのままclone可能。
+- **公開内容の安全確認**：46ファイル・コードのみ。音源(.wav/.mp3)・output・venvは.gitignoreで除外され混入なし。
+  コミット著者は実名「鴫原康」（本人がリスク承知で実名公開を選択）。メールはローカル名で漏れなし。
+- 今後の更新は `git add → commit → git push`（認証はkeyring保存済みトークンで自動）。
+
 ### 現在の中断ポイント（2026-07-27 更新・新チャット引き継ぎ用）
 すべて `master` にマージ済み・**全66テスト緑**・ワーキングツリークリーン。検証素材は
 `audio/Yvv4RVQzIFk.mp3`（Josh Woodward「Rebound」相当・CC-BY・35秒）。
@@ -350,9 +361,8 @@ verovioがMusicXMLのタブ（TAB音部記号＋technical string/fret）を描�
 - Web UI（ローカル）：`./venv/bin/python webapp.py` → http://127.0.0.1:7860
 
 **未了・次の一手**
-- **GitHub公開（ユーザー作業待ち）**：Colabのclone元。手順＝github.comで`bandcopy`をPublic作成
-  →URLを共有→こちらでノートの `REPO_URL` 差し替え＋remote設定→push（認証は康さん）。
-  ※`gh`未導入。音源は.gitignore済みで公開されるのはコードのみ。
+- ~~GitHub公開~~ → **完了**（2026-07-27・上記セクション参照。https://github.com/jasawsea/bandcopy ）。
+- **ADT（自動ドラム採譜）＝着手中**。設計フェーズ完了、実装は次回（2026-07-29 水の夜に再開予定）。詳細は下の「ADT A1 再開ポイント」参照。
 - **自動ドラム採譜(ADT)＝最後の大物**：素朴DIYは不可を確認済み（NMF分解 or 専用モデルを
   隔離venvで）。これが入ると「自動下書き→エディタで直す→スコア反映」の本命ループが完成。
   ドラム簡略化コマンド(#3)・エディタ→スコア連携(#5)は既に整備済みなので、ADTの下書きが
@@ -362,3 +372,21 @@ verovioがMusicXMLのタブ（TAB音部記号＋technical string/fret）を描�
 - フル尺・多数の実曲での検証はまだ（35秒クリップ中心）。
 - タブの運指は heuristic（最適保証なし）。4分離の混在ギターは高フレットが散見。
 - 採譜精度7〜8割前提（AIが8割・人が2割直す設計）。
+
+### ADT A1 再開ポイント（2026-07-27・次回 2026-07-29 水の夜に再開予定）
+自動ドラム採譜の**設計フェーズまで完了**。次回は「設計書レビュー→実装計画→実装」から。
+- **設計書**：`docs/2026-07-27-drum-adt-a1-design.md`（コミット済み b4a7c27）。superpowers brainstormingで作成。
+- **決定事項（やっさん承認済み）**：
+  - スコープ **A**＝グルーヴの土台だけ（KK/SNの骨格＋HHの粗さ8分/16分）。フィル・食いは狙わない。
+  - 手法 **A1**＝依存ゼロ（librosa/numpy内のNMF＋固定ドラムテンプレートでKK/SN/HH分離）。
+    素朴なスペクトル/帯域しきい値は既に失敗済み（本ファイル上部PoC参照）なのでNMF方式。
+  - 発動 **1**＝エディタのボタン「自動下書き（音源から）」。非破壊（既存の履歴スタックに乗る）。
+  - **段階戦略**：まずA1を作りRebound素材で評価→明らかに力不足ならA2（専用ADTモデル）に上げる判断。
+  - CLIパイプライン接続は今回やらない（YAGNI・純関数なので後付け可）。
+- **実装ユニット（設計書に詳細）**：①`app/drum_transcribe.py`新規（中核・純関数寄り
+  `transcribe_drums(drum_wav, tempo, bars)->grid`）②`app/analyze.py`に`transcribe_drum_from_audio`
+  ③`app/server.py`に`POST /auto-draft`④エディタUIにボタン＋ローディング。
+- **評価用キャッシュ**：`output/Yvv4RVQzIFk/stems/ドラム.wav`（Rebound）が既にあるのでDemucs待ち不要。
+- **次の具体アクション**：設計書をやっさんがレビュー→OKなら writing-plans スキルで実装計画→実装。
+- **未pushの注意**：この時点のCLAUDE.md更新・設計書コミットはローカルのみ（公開リポジトリには
+  未反映）。必要なら `git push`。
