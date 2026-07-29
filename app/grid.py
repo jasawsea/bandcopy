@@ -22,7 +22,14 @@ def make_template_grid(tempo: float, bars: int, steps_per_bar: int = 16) -> dict
         "tempo": tempo,
         "bars": bars,
         "steps_per_bar": steps_per_bar,
-        "lanes": {"KK": kk, "SN": sn, "HH": hh},
+        "lanes": {
+            "HH": hh,
+            "HT": [0] * n,   # ハイタム（人が手入力）
+            "MT": [0] * n,   # ミッドタム
+            "FT": [0] * n,   # フロアタム
+            "SN": sn,
+            "KK": kk,
+        },
     }
 
 
@@ -48,9 +55,12 @@ def fit_grid_to_bars(grid: dict, bars: int) -> dict:
 
 # レーンごとの記譜位置（displayStep, displayOctave, notehead）
 LANE_NOTATION = {
-    "KK": ("F", 4, None),   # キック：下第1間
-    "SN": ("C", 5, None),   # スネア：第3間
     "HH": ("G", 5, "x"),    # ハイハット：上第1線上・×符頭
+    "HT": ("E", 5, None),   # ハイタム：第4間
+    "MT": ("D", 5, None),   # ミッドタム：第4線
+    "SN": ("C", 5, None),   # スネア：第3間
+    "FT": ("A", 4, None),   # フロアタム：第2間
+    "KK": ("F", 4, None),   # キック：下第1間
 }
 
 
@@ -71,7 +81,9 @@ def grid_to_score(grid: dict):
     for b in range(bars):
         m = stream.Measure(number=b + 1)
         for lane, (dstep, doct, head) in LANE_NOTATION.items():
-            arr = grid["lanes"][lane]
+            arr = grid["lanes"].get(lane)
+            if not arr:
+                continue
             v = stream.Voice()
             for s in range(spb):
                 idx = b * spb + s
