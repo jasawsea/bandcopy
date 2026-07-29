@@ -124,6 +124,8 @@ async function autoDraft() {
     msg.textContent = hits ? "✓ 下書きを作成（元に戻せます）" : "打点を検出できませんでした";
     drawGrid();
     renderScore();
+  } catch (e) {
+    msg.textContent = "! 自動下書きに失敗しました";
   } finally {
     btn.disabled = false;
   }

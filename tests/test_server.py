@@ -118,3 +118,17 @@ def test_auto_draft_400_when_no_stem_or_audio():
              "stem_path": None, "audio_path": None}
     res = create_app(state).test_client().post("/auto-draft")
     assert res.status_code == 400
+
+
+def test_auto_draft_400_when_transcription_fails(monkeypatch, tmp_path):
+    def boom(*a, **k):
+        raise RuntimeError("壊れた音源")
+
+    monkeypatch.setattr("app.server.transcribe_drums", boom)
+    stem_path = tmp_path / "drums.wav"
+    stem_path.write_bytes(b"RIFF0000WAVE")
+    state = {"grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
+             "stem_path": str(stem_path), "audio_path": None}
+    res = create_app(state).test_client().post("/auto-draft")
+    assert res.status_code == 400
+    assert "error" in res.get_json()

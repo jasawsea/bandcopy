@@ -58,12 +58,15 @@ def create_app(state: dict) -> Flask:
     def auto_draft():
         g = state.get("grid") or {}
         stem = state.get("stem_path")
-        if stem and Path(stem).exists():
-            grid = transcribe_drums(stem, g.get("tempo", 120.0), g.get("bars", 1))
-        elif state.get("audio_path"):
-            grid = transcribe_drum_from_audio(state["audio_path"])
-        else:
+        if not (stem and Path(stem).exists()) and not state.get("audio_path"):
             return (jsonify({"error": "ドラム音源が見つかりません"}), 400)
+        try:
+            if stem and Path(stem).exists():
+                grid = transcribe_drums(stem, g.get("tempo", 120.0), g.get("bars", 1))
+            else:
+                grid = transcribe_drum_from_audio(state["audio_path"])
+        except Exception:
+            return (jsonify({"error": "自動採譜に失敗しました"}), 400)
         return jsonify(grid)
 
     @app.post("/export/musicxml")
