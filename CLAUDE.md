@@ -373,7 +373,31 @@ Colabのclone元となるPublicリポジトリを公開した。
 - タブの運指は heuristic（最適保証なし）。4分離の混在ギターは高フレットが散見。
 - 採譜精度7〜8割前提（AIが8割・人が2割直す設計）。
 
-### ADT A1 再開ポイント（2026-07-27・次回 2026-07-29 水の夜に再開予定）
+### ADT A1 ＋ タム3レーン 実装完了（2026-07-29）
+自動ドラム採譜（A1）とタム3レーン(HT/MT/FT)を実装・実機評価・チューニングまで完了。
+gitブランチ `drum-adt-a1`（全82テスト緑）。superpowers subagent-driven-developmentで実行。
+- **設計書** `docs/2026-07-27-drum-adt-a1-design.md` ／ **計画** `docs/2026-07-29-drum-adt-a1-plan.md`
+- **実装**：①`app/drum_transcribe.py`新設（NMF＋固定テンプレでKK/SN/HH採譜。純関数：quantize/
+  remove_ghost/infer_hihat_subdivision/fill_regular_hihat/high_freq_fraction/resolve_hihat_subdivision）
+  ②`app/analyze.py`に`transcribe_drum_from_audio` ③`app/server.py`に`POST /auto-draft`（分離済み
+  stem優先でDemucs回避、失敗は400＋日本語）④エディタ6レーン表示・日本語ラベル・「自動下書き」ボタン
+  （非破壊・履歴スタック）⑤`app/grid.py`にタム3レーン（記譜位置 HT=E5/MT=D5/FT=A4、grid_to_scoreは
+  レーン欠けに寛容）。
+- **タムは表現のみ**（人が手入力）。ADTの自動検出はKK/SN/HHの3レーンだけ。
+- **実機評価（Rebound・チューニング後）**：SN 4.5→2.4/小節（過検出解消）、HH 空→8分復活、
+  KK 4.8/小節（実キック活動・「キック間引き」で調整可）、タム空。**やっさん判断＝A1採用**（A2は保留）。
+- **A1の限界（記録）**：HHはオンセット検出ではNMFでスネア高域に吸われ拾えない→高域エネルギーの
+  有無で8分を既定に敷くフォールバックで対処。パラメータは曲ごとにばらつく（別曲yHMozkは打点が疎）。
+  精度をさらに上げるならA2（専用ADTモデルを隔離venv）。
+- **UI検証**：6レーン表示・自動下書き200・非破壊undo をブラウザ確認。※譜面描画はpreview起動の
+  sandbox下でのみverovioリソース不可で空表示だったが、通常起動はPythonで945px確認済み（コード不具合
+  ではない）。
+- **追跡課題（follow-up・merge非ブロッカー）**：test_grid.pyのinline import／Task2ヘルパの境界テスト薄い
+  ／librosaの重複import／pytest 3警告（既存ライブラリのDeprecation）／audio-only分岐(`transcribe_drum_from_audio`)
+  未テスト／`infer_hihat_subdivision`と`resolve_hihat_subdivision`の未使用引数`bar_sec`。
+
+<details><summary>旧・再開ポイント（設計フェーズ時点のメモ）</summary>
+
 自動ドラム採譜の**設計フェーズまで完了**。次回は「設計書レビュー→実装計画→実装」から。
 - **設計書**：`docs/2026-07-27-drum-adt-a1-design.md`（コミット済み b4a7c27）。superpowers brainstormingで作成。
 - **決定事項（やっさん承認済み）**：
@@ -390,3 +414,5 @@ Colabのclone元となるPublicリポジトリを公開した。
 - **次の具体アクション**：設計書をやっさんがレビュー→OKなら writing-plans スキルで実装計画→実装。
 - **未pushの注意**：この時点のCLAUDE.md更新・設計書コミットはローカルのみ（公開リポジトリには
   未反映）。必要なら `git push`。
+
+</details>
