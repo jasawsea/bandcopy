@@ -1,4 +1,8 @@
-const LANES = ["HH", "SN", "KK"];   // 上から表示
+const LANES = ["HH", "HT", "MT", "FT", "SN", "KK"];   // 上から表示
+const LANE_LABELS = {
+  HH: "ハイハット", HT: "ハイタム", MT: "ミッドタム",
+  FT: "フロアタム", SN: "スネア", KK: "キック",
+};
 let grid = null;
 const history = [];                 // 簡略化コマンド前のグリッドを積む（元に戻す用）
 
@@ -41,11 +45,12 @@ function drawGrid() {
     row.className = "lane";
     const label = document.createElement("div");
     label.className = "lane-label";
-    label.textContent = lane;
+    label.textContent = LANE_LABELS[lane] || lane;
     row.appendChild(label);
     grid.lanes[lane].forEach((v, i) => {
       const cell = document.createElement("div");
-      cell.className = "cell" + (v ? " on" : "") + (lane === "HH" ? " hh" : "");
+      const extra = lane === "HH" ? " hh" : (["HT", "MT", "FT"].includes(lane) ? " tom" : "");
+      cell.className = "cell" + (v ? " on" : "") + extra;
       if (i % (spb / 4) === 0) cell.classList.add("beat");  // 拍頭
       cell.addEventListener("click", () => {
         grid.lanes[lane][i] = grid.lanes[lane][i] ? 0 : 1;
@@ -100,6 +105,30 @@ function togglePlay() {
   if (audio.paused) audio.play(); else audio.pause();
 }
 
+async function autoDraft() {
+  const btn = document.getElementById("auto_draft");
+  const msg = document.getElementById("auto-msg");
+  btn.disabled = true;
+  msg.textContent = "解析中…";
+  try {
+    const res = await fetch("/auto-draft", { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      msg.textContent = "! " + (data.error || res.status);
+      return;
+    }
+    history.push(JSON.parse(JSON.stringify(grid)));
+    updateUndoButton();
+    grid = await res.json();
+    const hits = Object.values(grid.lanes).some((a) => a.some((v) => v));
+    msg.textContent = hits ? "✓ 下書きを作成（元に戻せます）" : "打点を検出できませんでした";
+    drawGrid();
+    renderScore();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 document.getElementById("render").addEventListener("click", renderScore);
 document.getElementById("export").addEventListener("click", exportXml);
 document.getElementById("save").addEventListener("click", saveGrid);
@@ -107,4 +136,5 @@ document.getElementById("play").addEventListener("click", togglePlay);
 document.getElementById("thin_kicks").addEventListener("click", () => applyCommand("thin_kicks"));
 document.getElementById("thin_hihat").addEventListener("click", () => applyCommand("thin_hihat"));
 document.getElementById("undo").addEventListener("click", undo);
+document.getElementById("auto_draft").addEventListener("click", autoDraft);
 loadGrid();
