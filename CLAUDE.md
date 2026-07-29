@@ -416,3 +416,21 @@ gitブランチ `drum-adt-a1`（全82テスト緑）。superpowers subagent-driv
   未反映）。必要なら `git push`。
 
 </details>
+
+### 次の機能：アプリ統合＋ドラム再生/MIDI（設計済み・未実装／2026-07-30 区切り）
+brainstormingで設計まで完了。**次回は「設計書レビュー→writing-plans→実装」から**。数日規模。
+- **設計書**：`docs/2026-07-30-integrate-and-drum-playback-design.md`（コミット済み e89afed）。
+- **やっさん承認済みの決定事項**：
+  - ①**アプリ統合**：みんな用Gradioとドラムエディタを**1URLに同居**（配布重視。行き来より統合を選択）。
+    タブは**独立（B）**＝各タブが別々に音源を受け取る（1曲共有はしない）。
+    - 実装：新`serve_all.py`（FastAPIに `/`=Gradio・`/editor`=Flaskエディタをマウント。fastapi/uvicorn/
+      starletteはgradio依存で導入済み＝新規依存なし）／エディタURLをbase-path対応（相対化＋`<base>`）／
+      エディタに音源アップロード入口`POST /editor/load`追加／相互リンク。
+    - **最大リスク**：Colab公開トンネルが`/editor`まで通すか（実装時に実機検証。ダメならcloudflared/ngrok）。
+  - ②**ドラム再生＋MIDI書き出し**（ドラム優先）：エディタに「▶グリッドを再生」（Web Audio合成音・
+    設定ゼロ・既存の分離WAV再生とは別物）＋「MIDI書き出し（ドラム）」（`grid_to_midi(grid)->bytes`を
+    `app/grid.py`に新設。GMドラムのSMFを自前生成＝新規依存なし。KK36/SN38/HH42/HT50/MT47/FT43）。
+    - 方式＝**A（アプリ内再生）＋C（MIDIファイル書き出し）**。ピッチ系はMIDIが既にパイプライン出力済みなので
+      配布は現状可能・アプリ内再生は将来課題。
+  - **割り切り**：単一利用者前提／ドラムのみ／合成音（本物の音源は将来）。
+- **次の具体アクション**：設計書レビュー→OKなら writing-plans→subagent-driven-developmentで実装。
