@@ -39,3 +39,81 @@ def fill_regular_hihat(subdivision, bars, steps_per_bar=16):
     if subdivision == 8:
         return [1 if s % 2 == 0 else 0 for s in range(n)]
     return [0] * n
+
+
+def _band(freqs, lo, hi, floor=0.01):
+    """[lo,hi]Hz を 1.0、外を floor にした非負の帯域ベクトル。"""
+    v = np.full(freqs.shape, floor, dtype=float)
+    v[(freqs >= lo) & (freqs <= hi)] = 1.0
+    return v
+
+
+def build_drum_templates(sr, n_fft):
+    """KK/SN/HH の固定スペクトルテンプレート W（列＝各成分）を作る。"""
+    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
+    kk = _band(freqs, 30, 120)                       # キック：低域
+    sn = _band(freqs, 150, 400) + 0.5 * _band(freqs, 2000, 8000)  # スネア：胴＋ノイズ
+    hh = _band(freqs, 6000, sr / 2)                  # ハイハット：高域
+    W = np.stack([kk, sn, hh], axis=1)
+    W /= (W.sum(axis=0, keepdims=True) + 1e-9)       # 列を正規化
+    return W
+
+
+def nmf_activations(V, W, iters=50):
+    """W を固定して活性 H のみを乗算更新で推定する（教師ありNMF）。"""
+    eps = 1e-9
+    H = np.full((W.shape[1], V.shape[1]), V.mean() + eps)
+    Wt = W.T
+    WtW = Wt @ W
+    for _ in range(iters):
+        H *= (Wt @ V) / (WtW @ H + eps)
+    return H
+
+
+def _onsets_from_activation(env, sr, hop, threshold_ratio=0.3):
+    """1成分の活性エンベロープからオンセット時刻と強度を返す。"""
+    import librosa
+    if env.max() <= 0:
+        return [], []
+    norm = env / env.max()
+    peaks = librosa.util.peak_pick(
+        norm, pre_max=2, post_max=2, pre_avg=3, post_avg=3, delta=0.05, wait=2
+    )
+    peaks = [int(p) for p in peaks if norm[p] >= threshold_ratio]
+    times = [p * hop / sr for p in peaks]
+    strengths = [float(norm[p]) for p in peaks]
+    return times, strengths
+
+
+def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
+    """ドラム音源からKK/SN/HHを自動採譜した6レーングリッドを返す。タムは全0。"""
+    import librosa
+
+    n_fft, hop = 1024, 256
+    y, sr = librosa.load(drum_wav_path, sr=None, mono=True)
+    S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
+    W = build_drum_templates(sr, n_fft)
+    H = nmf_activations(S, W)
+
+    n = bars * steps_per_bar
+    bar_sec = 4 * 60.0 / tempo
+    step_sec = bar_sec / steps_per_bar
+    step_times = [s * step_sec for s in range(n)]
+
+    lanes = {lane: [0] * n for lane in ("HH", "HT", "MT", "FT", "SN", "KK")}
+
+    # KK=行0, SN=行1 はオンセットを量子化して置く
+    for row, lane in ((0, "KK"), (1, "SN")):
+        times, strengths = _onsets_from_activation(H[row], sr, hop)
+        kept = remove_ghost(list(range(len(times))), strengths, 0.3)
+        times = [times[i] for i in kept]
+        for idx in quantize_onsets_to_grid(times, step_times):
+            if idx < n:
+                lanes[lane][idx] = 1
+
+    # HH=行2 は密度から刻みを判定して規則パターンを敷く
+    hh_times, _ = _onsets_from_activation(H[2], sr, hop)
+    sub = infer_hihat_subdivision(hh_times, bars, bar_sec)
+    lanes["HH"] = fill_regular_hihat(sub, bars, steps_per_bar)
+
+    return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar, "lanes": lanes}
