@@ -41,6 +41,27 @@ def fill_regular_hihat(subdivision, bars, steps_per_bar=16):
     return [0] * n
 
 
+def high_freq_fraction(S, freqs, floor_hz=5000.0):
+    """スペクトル総エネルギーに占める floor_hz 以上の割合（ハット/シンバルの存在指標）。"""
+    total = float(S.sum())
+    if total <= 0:
+        return 0.0
+    return float(S[freqs >= floor_hz].sum()) / total
+
+
+def resolve_hihat_subdivision(hh_onset_times, bars, bar_sec, hf_fraction, presence_floor=0.02):
+    """HHの刻みを決める。密度で 16/8 を判定し、判定不能でも高域エネルギーが
+    presence_floor 以上（ハットが鳴っている）なら 8分を既定として敷く。
+
+    オンセット検出だけではハットを拾いきれない（NMFでスネアの高域成分に吸われる）
+    ため、高域エネルギーの有無をフォールバックの手掛かりにする。
+    """
+    sub = infer_hihat_subdivision(hh_onset_times, bars, bar_sec)
+    if sub is None and hf_fraction >= presence_floor:
+        return 8
+    return sub
+
+
 def _band(freqs, lo, hi, floor=0.01):
     """[lo,hi]Hz を 1.0、外を floor にした非負の帯域ベクトル。"""
     v = np.full(freqs.shape, floor, dtype=float)
@@ -70,16 +91,19 @@ def nmf_activations(V, W, iters=50):
     return H
 
 
-def _onsets_from_activation(env, sr, hop, threshold_ratio=0.3):
-    """1成分の活性エンベロープからオンセット時刻と強度を返す。"""
+def _onsets_from_activation(env, sr, hop, wait=2):
+    """1成分の活性エンベロープからオンセット時刻と（0〜1正規化した）強度を返す。
+
+    ピーク検出のみを行い、強度によるふるい分けは呼び出し側（remove_ghost）に任せる。
+    """
     import librosa
     if env.max() <= 0:
         return [], []
     norm = env / env.max()
     peaks = librosa.util.peak_pick(
-        norm, pre_max=2, post_max=2, pre_avg=3, post_avg=3, delta=0.05, wait=2
+        norm, pre_max=2, post_max=2, pre_avg=3, post_avg=3, delta=0.05, wait=wait
     )
-    peaks = [int(p) for p in peaks if norm[p] >= threshold_ratio]
+    peaks = [int(p) for p in peaks]
     times = [p * hop / sr for p in peaks]
     strengths = [float(norm[p]) for p in peaks]
     return times, strengths
@@ -100,20 +124,22 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
     step_sec = bar_sec / steps_per_bar
     step_times = [s * step_sec for s in range(n)]
 
+    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
     lanes = {lane: [0] * n for lane in ("HH", "HT", "MT", "FT", "SN", "KK")}
 
-    # KK=行0, SN=行1 はオンセットを量子化して置く
+    # KK=行0, SN=行1：オンセットを拾い、弱い打点(ゴースト)を除いて量子化して置く
     for row, lane in ((0, "KK"), (1, "SN")):
-        times, strengths = _onsets_from_activation(H[row], sr, hop)
-        kept = remove_ghost(list(range(len(times))), strengths, 0.3)
+        times, strengths = _onsets_from_activation(H[row], sr, hop, wait=3)
+        kept = remove_ghost(list(range(len(times))), strengths, 0.4)
         times = [times[i] for i in kept]
         for idx in quantize_onsets_to_grid(times, step_times):
             if idx < n:
                 lanes[lane][idx] = 1
 
-    # HH=行2 は密度から刻みを判定して規則パターンを敷く
+    # HH=行2：密度で刻みを判定。弱くても高域エネルギーがあれば8分を既定にする
     hh_times, _ = _onsets_from_activation(H[2], sr, hop)
-    sub = infer_hihat_subdivision(hh_times, bars, bar_sec)
+    hf = high_freq_fraction(S, freqs)
+    sub = resolve_hihat_subdivision(hh_times, bars, bar_sec, hf)
     lanes["HH"] = fill_regular_hihat(sub, bars, steps_per_bar)
 
     return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar, "lanes": lanes}

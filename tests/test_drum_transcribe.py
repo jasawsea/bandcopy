@@ -6,9 +6,29 @@ from app.drum_transcribe import (
     remove_ghost,
     infer_hihat_subdivision,
     fill_regular_hihat,
+    high_freq_fraction,
+    resolve_hihat_subdivision,
     build_drum_templates,
     transcribe_drums,
 )
+
+
+def test_high_freq_fraction():
+    freqs = np.array([100.0, 1000.0, 6000.0, 8000.0])
+    S = np.ones((4, 1))                       # 各ビン等エネルギー・1フレーム
+    assert abs(high_freq_fraction(S, freqs) - 0.5) < 1e-9   # 4ビン中2ビンが5kHz以上
+    assert high_freq_fraction(np.zeros((4, 1)), freqs) == 0.0
+
+
+def test_resolve_hihat_subdivision_presence_fallback():
+    bar_sec = 2.0
+    # オンセットが弱くても高域エネルギーがあれば8分を既定に
+    assert resolve_hihat_subdivision([], 1, bar_sec, 0.1) == 8
+    # 高域エネルギーも無ければ空のまま（None）
+    assert resolve_hihat_subdivision([], 1, bar_sec, 0.0) is None
+    # 密なオンセットは密度判定が優先（高域の有無に依らず16）
+    dense = [i * bar_sec / 16 for i in range(16)]
+    assert resolve_hihat_subdivision(dense, 1, bar_sec, 0.0) == 16
 
 
 def test_quantize_snaps_to_nearest_step():
