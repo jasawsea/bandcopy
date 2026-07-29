@@ -8,6 +8,8 @@ from flask import Flask, jsonify, request, Response, send_file, render_template
 from app.grid import grid_to_musicxml
 from app.render import musicxml_to_svg
 from app.drum_simplify import thin_kicks, thin_hihat
+from app.drum_transcribe import transcribe_drums
+from app.analyze import transcribe_drum_from_audio
 
 # エディタの簡略化コマンド名 → 変換関数
 SIMPLIFY_COMMANDS = {
@@ -51,6 +53,21 @@ def create_app(state: dict) -> Flask:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(grid, ensure_ascii=False), encoding="utf-8")
         return jsonify({"saved": str(p)})
+
+    @app.post("/auto-draft")
+    def auto_draft():
+        g = state.get("grid") or {}
+        stem = state.get("stem_path")
+        if not (stem and Path(stem).exists()) and not state.get("audio_path"):
+            return (jsonify({"error": "ドラム音源が見つかりません"}), 400)
+        try:
+            if stem and Path(stem).exists():
+                grid = transcribe_drums(stem, g.get("tempo", 120.0), g.get("bars", 1))
+            else:
+                grid = transcribe_drum_from_audio(state["audio_path"])
+        except Exception:
+            return (jsonify({"error": "自動採譜に失敗しました"}), 400)
+        return jsonify(grid)
 
     @app.post("/export/musicxml")
     def export_musicxml():

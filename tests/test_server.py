@@ -84,3 +84,51 @@ def test_save_grid_without_configured_path_returns_400():
     r = create_app(state).test_client().post("/save-grid",
                                              json=make_template_grid(100.0, 1))
     assert r.status_code == 400
+
+
+def test_auto_draft_uses_stem_and_returns_grid(monkeypatch, tmp_path):
+    fake = {"tempo": 120.0, "bars": 1, "steps_per_bar": 16,
+            "lanes": {k: [0] * 16 for k in ("HH", "HT", "MT", "FT", "SN", "KK")}}
+    fake["lanes"]["KK"][0] = 1
+    called = {}
+
+    def fake_transcribe(stem, tempo, bars, steps_per_bar=16):
+        called["stem"] = stem
+        called["tempo"] = tempo
+        called["bars"] = bars
+        return fake
+
+    monkeypatch.setattr("app.server.transcribe_drums", fake_transcribe)
+    stem_path = tmp_path / "drums.wav"
+    stem_path.write_bytes(b"RIFF0000WAVE")
+    state = {
+        "grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
+        "stem_path": str(stem_path),
+        "audio_path": "/tmp/song.mp3",
+    }
+    res = create_app(state).test_client().post("/auto-draft")
+    assert res.status_code == 200
+    assert res.get_json()["lanes"]["KK"][0] == 1
+    assert called["stem"] == str(stem_path)        # 分離済みstemを使う
+    assert called["tempo"] == 120.0 and called["bars"] == 1  # テンプレのtempo/barsを再利用
+
+
+def test_auto_draft_400_when_no_stem_or_audio():
+    state = {"grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
+             "stem_path": None, "audio_path": None}
+    res = create_app(state).test_client().post("/auto-draft")
+    assert res.status_code == 400
+
+
+def test_auto_draft_400_when_transcription_fails(monkeypatch, tmp_path):
+    def boom(*a, **k):
+        raise RuntimeError("壊れた音源")
+
+    monkeypatch.setattr("app.server.transcribe_drums", boom)
+    stem_path = tmp_path / "drums.wav"
+    stem_path.write_bytes(b"RIFF0000WAVE")
+    state = {"grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
+             "stem_path": str(stem_path), "audio_path": None}
+    res = create_app(state).test_client().post("/auto-draft")
+    assert res.status_code == 400
+    assert "error" in res.get_json()

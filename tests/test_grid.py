@@ -73,3 +73,31 @@ def test_count_bars_rounds_up():
     assert count_bars(duration_sec=7.0, tempo=120.0) == 4
     # ちょうど割り切れる場合
     assert count_bars(duration_sec=8.0, tempo=120.0) == 4
+
+
+def test_template_has_six_lanes_with_empty_toms():
+    g = make_template_grid(120.0, 2)
+    assert set(g["lanes"].keys()) == {"HH", "HT", "MT", "FT", "SN", "KK"}
+    for lane in ("HT", "MT", "FT"):
+        assert g["lanes"][lane] == [0] * 32          # 2小節*16、タムは空
+
+
+def test_lane_notation_has_tom_positions():
+    from app.grid import LANE_NOTATION
+    assert LANE_NOTATION["HT"] == ("E", 5, None)
+    assert LANE_NOTATION["MT"] == ("D", 5, None)
+    assert LANE_NOTATION["FT"] == ("A", 4, None)
+
+
+def test_grid_to_score_renders_tom_hit():
+    g = make_template_grid(120.0, 1)
+    g["lanes"]["FT"][0] = 1                            # フロアタムを1発置く
+    xml = grid_to_musicxml(g)
+    assert "unpitched" in xml.lower()                 # 打点が書き出される
+    assert "<display-step>A</display-step>" in xml    # フロアタムの位置
+
+
+def test_grid_to_score_tolerates_missing_lane():
+    g = make_template_grid(120.0, 1)
+    del g["lanes"]["HT"]                               # レーン欠けでも落ちない
+    grid_to_musicxml(g)                               # 例外が出なければ合格

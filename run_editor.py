@@ -37,6 +37,7 @@ def main():
     app = create_app({
         "grid": grid,
         "stem_path": stem,
+        "audio_path": audio,
         "grid_save_path": str(grid_save_path),
     })
     port = int(os.environ.get("PORT", 5000))
