@@ -9,27 +9,42 @@ const history = [];                 // 簡略化コマンド前のグリッド�
 let audioCtx = null;
 let playTimers = [];
 let playing = false;
+let noiseBuffer = null;       // ctx毎に1回だけ作る白色雑音バッファ（SN/HHで共有）
+let noiseBufferCtx = null;    // どのAudioContext用に作ったバッファか
+
+// キック/タム共通：減衰する正弦波を1発鳴らす（周波数だけレーンごとに変える）
+function playDecayingSine(ctx, time, f0, f1, dur) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(f0, time);
+  osc.frequency.exponentialRampToValueAtTime(f1, time + dur);
+  gain.gain.setValueAtTime(1, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(time); osc.stop(time + dur);
+}
+
+function getNoiseBuffer(ctx) {
+  // 長さはSN/HHの最大想定デュレーション（0.15秒）を確保し、短い方は先頭を使う
+  if (noiseBuffer && noiseBufferCtx === ctx) return noiseBuffer;
+  const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * 0.15));
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  noiseBuffer = buffer;
+  noiseBufferCtx = ctx;
+  return buffer;
+}
 
 function synthHit(lane, time) {
   const ctx = audioCtx;
   if (lane === "KK") {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(120, time);
-    osc.frequency.exponentialRampToValueAtTime(40, time + 0.15);
-    gain.gain.setValueAtTime(1, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(time); osc.stop(time + 0.15);
+    playDecayingSine(ctx, time, 120, 40, 0.15);
   } else if (lane === "SN" || lane === "HH") {
     const dur = lane === "SN" ? 0.15 : 0.05;
-    const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * dur));
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
     const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = getNoiseBuffer(ctx);
     const filter = ctx.createBiquadFilter();
     filter.type = lane === "SN" ? "bandpass" : "highpass";
     filter.frequency.value = lane === "SN" ? 1800 : 8000;
@@ -40,16 +55,8 @@ function synthHit(lane, time) {
     noise.start(time); noise.stop(time + dur);
   } else {
     const freqMap = { HT: 220, MT: 180, FT: 140 };
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
     const f0 = freqMap[lane] || 160;
-    osc.frequency.setValueAtTime(f0, time);
-    osc.frequency.exponentialRampToValueAtTime(f0 * 0.6, time + 0.2);
-    gain.gain.setValueAtTime(1, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(time); osc.stop(time + 0.2);
+    playDecayingSine(ctx, time, f0, f0 * 0.6, 0.2);
   }
 }
 
@@ -188,6 +195,12 @@ async function saveGrid() {
   }
 }
 
+async function reloadForNewSong() {
+  if (!confirm("読み込んだ音源を破棄して最初の画面に戻ります。よろしいですか？")) return;
+  await fetch("reset", { method: "POST" });
+  location.reload();
+}
+
 function togglePlay() {
   const audio = document.getElementById("audio");
   if (audio.paused) audio.play(); else audio.pause();
@@ -223,6 +236,7 @@ document.getElementById("render").addEventListener("click", renderScore);
 document.getElementById("export").addEventListener("click", exportXml);
 document.getElementById("export_midi").addEventListener("click", exportMidi);
 document.getElementById("save").addEventListener("click", saveGrid);
+document.getElementById("reload").addEventListener("click", reloadForNewSong);
 document.getElementById("play").addEventListener("click", togglePlay);
 document.getElementById("thin_kicks").addEventListener("click", () => applyCommand("thin_kicks"));
 document.getElementById("thin_hihat").addEventListener("click", () => applyCommand("thin_hihat"));
