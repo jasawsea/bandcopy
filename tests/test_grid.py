@@ -1,4 +1,4 @@
-from app.grid import make_template_grid, grid_to_musicxml, fit_grid_to_bars
+from app.grid import make_template_grid, grid_to_musicxml, fit_grid_to_bars, grid_to_midi
 from app.analyze import count_bars
 
 
@@ -101,3 +101,48 @@ def test_grid_to_score_tolerates_missing_lane():
     g = make_template_grid(120.0, 1)
     del g["lanes"]["HT"]                               # レーン欠けでも落ちない
     grid_to_musicxml(g)                               # 例外が出なければ合格
+
+
+def test_grid_to_midi_starts_with_mthd_and_contains_mtrk():
+    from app.grid import grid_to_midi, make_template_grid
+    grid = make_template_grid(120.0, 1)
+    midi = grid_to_midi(grid)
+    assert midi[:4] == b"MThd"
+    assert b"MTrk" in midi
+
+
+def test_grid_to_midi_only_active_lane_has_note_on():
+    from app.grid import grid_to_midi
+    grid = {
+        "tempo": 120.0, "bars": 1, "steps_per_bar": 16,
+        "lanes": {lane: [0] * 16 for lane in ("KK", "SN", "HH", "HT", "MT", "FT")},
+    }
+    grid["lanes"]["KK"][0] = 1
+    midi = grid_to_midi(grid)
+    assert midi.count(bytes([0x99, 36, 100])) == 1  # KK=36のNote On が1つ
+    assert midi.count(bytes([0x99, 38, 100])) == 0  # SNは打点なし
+
+
+def test_grid_to_midi_empty_grid_has_zero_note_on():
+    from app.grid import grid_to_midi
+    grid = {
+        "tempo": 120.0, "bars": 1, "steps_per_bar": 16,
+        "lanes": {lane: [0] * 16 for lane in ("KK", "SN", "HH", "HT", "MT", "FT")},
+    }
+    midi = grid_to_midi(grid)
+    assert midi.count(bytes([0x99])) == 0
+
+
+def test_grid_to_midi_toms_use_correct_gm_numbers():
+    from app.grid import grid_to_midi
+    grid = {
+        "tempo": 120.0, "bars": 1, "steps_per_bar": 16,
+        "lanes": {lane: [0] * 16 for lane in ("KK", "SN", "HH", "HT", "MT", "FT")},
+    }
+    grid["lanes"]["HT"][0] = 1
+    grid["lanes"]["MT"][1] = 1
+    grid["lanes"]["FT"][2] = 1
+    midi = grid_to_midi(grid)
+    assert midi.count(bytes([0x99, 50, 100])) == 1  # HT
+    assert midi.count(bytes([0x99, 47, 100])) == 1  # MT
+    assert midi.count(bytes([0x99, 43, 100])) == 1  # FT

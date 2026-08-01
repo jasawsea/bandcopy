@@ -113,3 +113,72 @@ def grid_to_musicxml(grid: dict) -> str:
     from music21.musicxml.m21ToXml import GeneralObjectExporter
     sc = grid_to_score(grid)
     return GeneralObjectExporter(sc).parse().decode("utf-8")
+
+
+LANE_MIDI_NOTE = {
+    "KK": 36,   # Bass Drum 1
+    "SN": 38,   # Acoustic Snare
+    "HH": 42,   # Closed Hi-Hat
+    "HT": 50,   # High Tom
+    "MT": 47,   # Low-Mid Tom
+    "FT": 43,   # High Floor Tom
+}
+
+
+def _var_len(value: int) -> bytes:
+    """整数をMIDI可変長数値（Variable Length Quantity）にエンコードする。"""
+    buf = [value & 0x7F]
+    value >>= 7
+    while value:
+        buf.insert(0, (value & 0x7F) | 0x80)
+        value >>= 7
+    return bytes(buf)
+
+
+def grid_to_midi(grid: dict) -> bytes:
+    """グリッドをGMドラム（チャンネル10）のStandard MIDI File(format 0)に変換する。
+
+    16分ステップ固定・division=480（1ステップ=120tick）。各打点は短い固定ゲート
+    （60tick）でNote On/Offを打つ。ファイルI/Oは行わずbytesを返すのみ。
+    """
+    division = 480
+    step_ticks = division // 4
+    gate = step_ticks // 2
+    spb = grid["steps_per_bar"]
+    n = grid["bars"] * spb
+
+    events = []  # (tick, is_note_on, note_num)
+    for lane, note_num in LANE_MIDI_NOTE.items():
+        arr = grid["lanes"].get(lane) or []
+        for i in range(min(n, len(arr))):
+            if arr[i]:
+                on_tick = i * step_ticks
+                events.append((on_tick, True, note_num))
+                events.append((on_tick + gate, False, note_num))
+
+    # 同tickではNote Offを先に処理する（不要な音の重なりを避ける）
+    events.sort(key=lambda e: (e[0], 0 if not e[1] else 1))
+
+    track = bytearray()
+    usec_per_qn = round(60_000_000 / grid["tempo"])
+    track += _var_len(0)
+    track += bytes([0xFF, 0x51, 0x03]) + usec_per_qn.to_bytes(3, "big")
+
+    prev_tick = 0
+    for tick, is_on, note in events:
+        track += _var_len(tick - prev_tick)
+        prev_tick = tick
+        status = 0x99 if is_on else 0x89  # チャンネル10（index 9）
+        velocity = 100 if is_on else 0
+        track += bytes([status, note, velocity])
+
+    track += _var_len(0) + bytes([0xFF, 0x2F, 0x00])  # End of Track
+
+    header = (
+        b"MThd" + (6).to_bytes(4, "big")
+        + (0).to_bytes(2, "big")   # format 0
+        + (1).to_bytes(2, "big")   # ntrks
+        + division.to_bytes(2, "big")
+    )
+    mtrk = b"MTrk" + len(track).to_bytes(4, "big") + bytes(track)
+    return header + mtrk
