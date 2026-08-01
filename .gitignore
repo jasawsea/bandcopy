@@ -15,3 +15,8 @@ audio/
 # git worktree（実装用の隔離ワークスペース）
 .worktrees/
 .superpowers/
+
+# worktree用のsymlink（実体は本チェックアウト側）
+/venv
+/output
+/audio
