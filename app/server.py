@@ -23,7 +23,7 @@ def create_app(state: dict) -> Flask:
 
     @app.get("/")
     def index():
-        return render_template("editor.html")
+        return render_template("editor.html", base=state.get("base", "/"))
 
     @app.get("/grid")
     def get_grid():

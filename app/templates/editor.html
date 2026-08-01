@@ -3,14 +3,19 @@
 <head>
   <meta charset="utf-8">
   <title>bandcopy ドラムエディタ</title>
-  <link rel="stylesheet" href="/static/editor.css">
+  <base href="{{ base }}">
+  <link rel="stylesheet" href="static/editor.css">
 </head>
 <body>
   <h1>ドラムエディタ</h1>
+  {% if base != '/' %}<p><a href="../">みんな用に戻る</a></p>{% endif %}
   <div id="controls">
     <button id="play">▶ ドラム音源を再生</button>
+    <button id="play_grid">▶ グリッドを再生</button>
+    <button id="stop_grid" disabled>■ 停止</button>
     <button id="render">譜面にする</button>
     <button id="export">MusicXML書き出し</button>
+    <button id="export_midi">MIDI書き出し（ドラム）</button>
     <button id="save" title="編集したドラムを統合スコア(score_all)に反映するため保存">スコア用に保存</button>
     <span id="save-msg"></span>
   </div>
@@ -24,9 +29,9 @@
     <button id="thin_hihat" title="ハイハットを1段階粗く（16分→8分→4分）">ハイハットを軽く</button>
     <button id="undo" disabled>↩ 元に戻す</button>
   </div>
-  <audio id="audio" src="/stem" preload="none"></audio>
+  <audio id="audio" src="stem" preload="none"></audio>
   <div id="grid"></div>
   <div id="score"></div>
-  <script src="/static/editor.js"></script>
+  <script src="static/editor.js"></script>
 </body>
 </html>

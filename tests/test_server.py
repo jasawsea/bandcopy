@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.grid import make_template_grid
 from app.server import create_app
 
@@ -132,3 +134,33 @@ def test_auto_draft_400_when_transcription_fails(monkeypatch, tmp_path):
     res = create_app(state).test_client().post("/auto-draft")
     assert res.status_code == 400
     assert "error" in res.get_json()
+
+
+def test_index_default_base_uses_root_and_relative_asset_paths():
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None}
+    r = create_app(state).test_client().get("/")
+    html = r.get_data(as_text=True)
+    assert '<base href="/">' in html
+    assert 'href="static/editor.css"' in html
+    assert 'src="static/editor.js"' in html
+    assert 'src="stem"' in html
+
+
+def test_index_custom_base_shown_in_head_and_back_link_appears():
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None, "base": "/editor/"}
+    r = create_app(state).test_client().get("/")
+    html = r.get_data(as_text=True)
+    assert '<base href="/editor/">' in html
+    assert 'href="../"' in html
+
+
+def test_editor_html_source_has_no_absolute_asset_paths():
+    html = Path("app/templates/editor.html").read_text()
+    assert 'href="/static' not in html
+    assert 'src="/static' not in html
+    assert 'src="/stem"' not in html
+
+
+def test_editor_js_source_has_no_absolute_fetch_paths():
+    js = Path("app/static/editor.js").read_text()
+    assert 'fetch("/' not in js

@@ -7,7 +7,7 @@ let grid = null;
 const history = [];                 // 簡略化コマンド前のグリッドを積む（元に戻す用）
 
 async function loadGrid() {
-  grid = await (await fetch("/grid")).json();
+  grid = await (await fetch("grid")).json();
   drawGrid();
 }
 
@@ -19,7 +19,7 @@ function updateUndoButton() {
 async function applyCommand(command) {
   history.push(JSON.parse(JSON.stringify(grid)));
   updateUndoButton();
-  grid = await (await fetch("/simplify", {
+  grid = await (await fetch("simplify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command, grid }),
@@ -63,7 +63,7 @@ function drawGrid() {
 }
 
 async function renderScore() {
-  const svg = await (await fetch("/render", {
+  const svg = await (await fetch("render", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(grid),
@@ -72,7 +72,7 @@ async function renderScore() {
 }
 
 async function exportXml() {
-  const res = await fetch("/export/musicxml", {
+  const res = await fetch("export/musicxml", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(grid),
@@ -86,7 +86,7 @@ async function exportXml() {
 
 async function saveGrid() {
   const msg = document.getElementById("save-msg");
-  const res = await fetch("/save-grid", {
+  const res = await fetch("save-grid", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(grid),
@@ -111,7 +111,7 @@ async function autoDraft() {
   btn.disabled = true;
   msg.textContent = "解析中…";
   try {
-    const res = await fetch("/auto-draft", { method: "POST" });
+    const res = await fetch("auto-draft", { method: "POST" });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       msg.textContent = "! " + (data.error || res.status);
