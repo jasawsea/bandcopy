@@ -20,3 +20,6 @@ audio/
 /venv
 /output
 /audio
+
+# Gradio共有トンネルが実行時に取得するルート証明書
+.gradio/

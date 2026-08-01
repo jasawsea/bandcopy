@@ -59,6 +59,15 @@
     （どちらも1ポート全体をトンネルするので `/editor` も通る）。
 - この検証結果と採用手段を実装時に記録する。
 
+> **検証結果（2026-08-01・解決済み）**
+> Gradioの共有トンネルは `frpc http <ポート> <ホスト>` で**ポート単位のHTTPプロキシ**として
+> 動くため、そのポート上の全パスが転送される（Gradioアプリ単位のプロキシではない）。
+> `gradio.networking.setup_tunnel("127.0.0.1", PORT, token, None, None)` で uvicorn の
+> ポートごと公開し、公開URL経由で `/`・`/editor/`・`/editor`（307）・
+> `/editor/static/editor.js`・`/editor/grid` すべて **200** を実測確認。
+> → **cloudflared/ngrokへの切替は不要**。`bandcopy_colab.ipynb` はこの方式に更新済み
+> （`build_ui().launch(share=True)` から `serve_all.build_app()` ＋ `setup_tunnel` へ）。
+
 ### テスト方針（①）
 - `serve_all` の app 構築（`build_app()->FastAPI`）を smoke：`/editor/` が 200、`/`（Gradio）が 200、
   `/editor/grid` が JSON を返す（TestClient）。

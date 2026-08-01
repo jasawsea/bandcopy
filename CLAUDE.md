@@ -469,9 +469,22 @@ gitブランチ `drum-adt-a1`（全82テスト緑）。superpowers subagent-driv
   足すときは全部直す必要がある。`app/parts.py`と同じ単一ソース化が次の自然なリファクタ。
 - **未反映のドキュメント**：`README.md`は`webapp.py`のまま、`手順書.md`にはエディタ/アップロードの
   記載が無い。非エンジニア向けの説明を書くならここ。
-- **Colab公開トンネルが`/editor`まで通るかは未検証**（設計時からのスコープ外）。
-  `bandcopy_colab.ipynb`は今も`build_ui().launch(share=True)`＝エディタ無し。通らなければ
-  cloudflared/ngrokで1ポート丸ごとトンネルする案が設計書にある。
+- ~~Colab公開トンネルが`/editor`まで通るか~~ → **解決済み（2026-08-01・下記セクション参照）**。
+
+### Colabトンネル検証＝解決（2026-08-01）＝設計時の最大リスクが消えた
+「Gradioの共有トンネルが`/editor`まで通すか」が積み残しだったが、**通る**ことを実機で確認した。
+- **理由**：Gradioの共有は `frpc http <ポート> <ホスト>` ＝**ポート単位のHTTPプロキシ**。
+  Gradioアプリ単位のプロキシではないので、そのポートで出している全パスがそのまま転送される。
+- **やり方**：uvicornで`serve_all.build_app()`を127.0.0.1:PORTに立て、
+  `gradio.networking.setup_tunnel("127.0.0.1", PORT, secrets.token_urlsafe(32), None, None)`
+  でポートごと公開する。返る`https://〜.gradio.live`の配下に`/editor/`も乗る。
+- **実測**：公開URL経由で `/`・`/editor/`・`/editor`(307)・`/editor/static/editor.js`・
+  `/editor/grid` すべて**200**。→ **cloudflared/ngrokは不要**。
+- **`bandcopy_colab.ipynb`を更新済み**：`build_ui().launch(share=True)`（エディタ無し）から
+  上記の`serve_all`＋`setup_tunnel`方式へ。セル本体をそのまま実行して両画面200を再確認済み。
+  ノートには「みんな用」「ドラム編集」の2URLを表示する。
+- **注意**：この公開URLは**認証なし**。誰でも音源アップロード＝Demucs実行ができる。
+  URLはランダムかつセッション限りだが、配る相手は選ぶこと。
 
 <details><summary>旧・設計フェーズ時点のメモ（2026-07-30）</summary>
 
