@@ -11,3 +11,7 @@ __pycache__/
 #   audio/*.mp3 は getaudio.py で再取得、test30.wav は合成音で再生成可
 audio/
 *.wav
+
+# git worktree（実装用の隔離ワークスペース）
+.worktrees/
+.superpowers/
