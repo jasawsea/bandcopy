@@ -31,6 +31,15 @@ def test_post_export_musicxml():
     assert "<score-partwise" in r.get_data(as_text=True)
 
 
+def test_post_export_midi_returns_smf():
+    grid = make_template_grid(100.0, 1)
+    r = _client().post("/export/midi", json=grid)
+    assert r.status_code == 200
+    assert r.data[:4] == b"MThd"
+    assert "drums.mid" in r.headers["Content-Disposition"]
+    assert r.mimetype == "audio/midi"
+
+
 def test_stem_serves_relative_path(tmp_path, monkeypatch):
     # 相対パスでも配信できること（send_fileはapp基準で解決するため絶対化が必要）
     (tmp_path / "d.wav").write_bytes(b"RIFF0000WAVE")

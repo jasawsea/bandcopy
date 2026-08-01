@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, Response, send_file, render_template
 from werkzeug.utils import secure_filename
 
-from app.grid import grid_to_musicxml
+from app.grid import grid_to_musicxml, grid_to_midi
 from app.render import musicxml_to_svg
 from app.drum_simplify import thin_kicks, thin_hihat
 from app.drum_transcribe import transcribe_drums
@@ -106,6 +106,16 @@ def create_app(state: dict) -> Flask:
             xml,
             mimetype="application/vnd.recordare.musicxml+xml",
             headers={"Content-Disposition": "attachment; filename=drums.musicxml"},
+        )
+
+    @app.post("/export/midi")
+    def export_midi():
+        grid = request.get_json(force=True)
+        data = grid_to_midi(grid)
+        return Response(
+            data,
+            mimetype="audio/midi",
+            headers={"Content-Disposition": "attachment; filename=drums.mid"},
         )
 
     @app.get("/stem")
