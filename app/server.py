@@ -1,6 +1,9 @@
 """ローカルWebエディタのFlaskアプリ。HTTPの配線のみ。"""
+import hashlib
 import json
+import logging
 import os
+import re
 from pathlib import Path
 
 from flask import Flask, jsonify, request, Response, send_file, render_template
@@ -12,11 +15,39 @@ from app.drum_simplify import thin_kicks, thin_hihat
 from app.drum_transcribe import transcribe_drums
 from app.analyze import transcribe_drum_from_audio, build_template_from_audio, separate_drum_stem
 
+logger = logging.getLogger(__name__)
+
 # エディタの簡略化コマンド名 → 変換関数
 SIMPLIFY_COMMANDS = {
     "thin_kicks": thin_kicks,
     "thin_hihat": thin_hihat,
 }
+
+# 拡張子として許可する形（英数字のみ・最大10文字）。それ以外は捨てる。
+_SAFE_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,10}$")
+
+
+def _sanitize_upload_filename(original_name: str) -> str:
+    """アップロードされたファイル名を、パストラバーサル対策をしつつ拡張子を保って安全化する。
+
+    secure_filename は非ASCII文字を丸ごと落とすため、日本語ファイル名だと拡張子
+    まで失われたり（例：'曲.mp3' -> 'mp3'）、複数の日本語名が同じ結果に潰れて
+    衝突したりする（例：'サビ.wav' と '曲.wav' がどちらも 'wav' になり得る）。
+    非ASCIIを含む場合は、元のファイル名のハッシュから一意な名前を作り、拡張子は
+    元のファイル名から別途取り出して検証のうえ付け直す。
+    """
+    original_name = original_name or ""
+    # パス区切りを含んでいてもファイル名部分だけを見る
+    name_only = os.path.basename(original_name.replace("\\", "/"))
+    stem_orig, ext_orig = os.path.splitext(name_only)
+    ext = ext_orig if _SAFE_EXT_RE.fullmatch(ext_orig) else ""
+
+    if stem_orig and not stem_orig.isascii():
+        digest = hashlib.sha1(original_name.encode("utf-8")).hexdigest()[:10]
+        return f"upload_{digest}{ext}"
+
+    safe = secure_filename(name_only)
+    return safe or "upload"
 
 
 def create_app(state: dict) -> Flask:
@@ -40,23 +71,32 @@ def create_app(state: dict) -> Flask:
             return (jsonify({"error": "音源ファイルがありません"}), 400)
         upload_dir = Path("output") / "_upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
-        # Sanitize filename to prevent path traversal attacks
-        safe_filename = secure_filename(f.filename)
-        # If sanitizing yields empty string, fall back to safe default
-        if not safe_filename:
-            safe_filename = "upload"
+        # ファイル名を安全化（パストラバーサル対策＋日本語名の拡張子・一意性を保つ）
+        safe_filename = _sanitize_upload_filename(f.filename)
         audio_path = upload_dir / safe_filename
         f.save(str(audio_path))
         try:
             grid = build_template_from_audio(str(audio_path))
             stem = separate_drum_stem(str(audio_path), str(Path("output") / "_editor"))
-        except Exception:
+        except (Exception, SystemExit):
+            # separate_drum_stem の先（Demucs呼び出し）は失敗時にsys.exit(1)する箇所が
+            # あり、SystemExitはBaseException派生でExceptionだけでは捕まらない。
+            # ユーザーには一般化した日本語メッセージのみ返し、詳細はログに残す。
+            logger.exception("音源の解析に失敗しました: %s", audio_path)
             return (jsonify({"error": "音源の解析に失敗しました"}), 400)
         state["grid"] = grid
         state["stem_path"] = stem
         state["audio_path"] = str(audio_path)
         state["grid_save_path"] = str(Path("output") / audio_path.stem / "drum_grid.json")
         return jsonify({"loaded": True})
+
+    @app.post("/reset")
+    def reset():
+        state["grid"] = None
+        state["stem_path"] = None
+        state["audio_path"] = None
+        state["grid_save_path"] = None
+        return jsonify({"reset": True})
 
     @app.post("/render")
     def render():

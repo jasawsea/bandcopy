@@ -176,6 +176,13 @@ def test_editor_js_source_has_no_absolute_fetch_paths():
     assert 'fetch("/' not in js
 
 
+def test_upload_html_disables_submit_button_during_request():
+    """多重送信防止：送信中はボタンをdisabledにし、失敗時は再度押せるように戻すこと"""
+    html = Path("app/templates/upload.html").read_text()
+    assert "submitBtn.disabled = true" in html
+    assert "submitBtn.disabled = false" in html
+
+
 def test_index_shows_upload_page_when_no_grid_loaded():
     state = {"grid": None, "stem_path": None}
     r = create_app(state).test_client().get("/")
@@ -227,6 +234,24 @@ def test_load_audio_failure_returns_400(monkeypatch, tmp_path):
     state = {"grid": None, "stem_path": None}
     client = create_app(state).test_client()
     data = {"audio": (io.BytesIO(b"x"), "a.wav")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 400
+    assert "error" in r.get_json()
+
+
+def test_load_audio_systemexit_from_separation_returns_400(monkeypatch, tmp_path):
+    """separate_drum_stem（Demucs呼び出し）がsys.exit(1)しても500ではなく400+日本語になること"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+
+    def boom(*a, **k):
+        raise SystemExit(1)
+
+    monkeypatch.setattr("app.server.separate_drum_stem", boom)
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+    data = {"audio": (io.BytesIO(b"fake wav data"), "song.wav")}
     r = client.post("/load", data=data, content_type="multipart/form-data")
     assert r.status_code == 400
     assert "error" in r.get_json()
@@ -302,6 +327,66 @@ def test_load_audio_sanitizes_empty_filename_to_default(monkeypatch, tmp_path):
     saved_audio_path = state["audio_path"]
     assert Path(saved_audio_path).name == "upload"
     assert (tmp_path / "output" / "_upload" / "upload").exists()
+
+
+def test_reset_clears_loaded_song_state():
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": "/tmp/d.wav",
+             "audio_path": "/tmp/song.wav", "grid_save_path": "/tmp/drum_grid.json"}
+    client = create_app(state).test_client()
+    r = client.post("/reset")
+    assert r.status_code == 200
+    assert state["grid"] is None
+    assert state["stem_path"] is None
+    assert state["audio_path"] is None
+    assert state["grid_save_path"] is None
+    # リセット後は / がアップロード画面を返す
+    r2 = client.get("/")
+    assert "アップロード" in r2.get_data(as_text=True)
+
+
+def test_load_audio_japanese_filename_keeps_extension_and_distinct_path(monkeypatch, tmp_path):
+    """日本語ファイル名でも拡張子が保たれ、他とは衝突しないパスになること"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+    data = {"audio": (io.BytesIO(b"fake wav data"), "リハ音源2026.m4a")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200
+    saved_path = Path(state["audio_path"])
+    assert saved_path.suffix == ".m4a"
+    upload_dir_resolved = (tmp_path / "output" / "_upload").resolve()
+    assert upload_dir_resolved in saved_path.resolve().parents
+
+
+def test_load_audio_two_different_japanese_filenames_do_not_collide(monkeypatch, tmp_path):
+    """異なる日本語ファイル名が同じ保存先に衝突しないこと"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+
+    state1 = {"grid": None, "stem_path": None, "audio_path": None}
+    client1 = create_app(state1).test_client()
+    data1 = {"audio": (io.BytesIO(b"fake wav data 1"), "曲.mp3")}
+    r1 = client1.post("/load", data=data1, content_type="multipart/form-data")
+    assert r1.status_code == 200
+
+    state2 = {"grid": None, "stem_path": None, "audio_path": None}
+    client2 = create_app(state2).test_client()
+    data2 = {"audio": (io.BytesIO(b"fake wav data 2"), "サビ.wav")}
+    r2 = client2.post("/load", data=data2, content_type="multipart/form-data")
+    assert r2.status_code == 200
+
+    assert state1["audio_path"] != state2["audio_path"]
+    assert Path(state1["audio_path"]).suffix == ".mp3"
+    assert Path(state2["audio_path"]).suffix == ".wav"
 
 
 def test_load_audio_sets_grid_save_path_from_sanitized_filename(monkeypatch, tmp_path):
