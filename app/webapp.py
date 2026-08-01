@@ -76,17 +76,33 @@ def process(audio_path, level=3, six=False, workdir=None):
     return out
 
 
-def build_ui():
-    """Gradio の Blocks を組み立てて返す（起動は別途 .launch()）。"""
+def build_intro_markdown(editor_link: bool = False) -> str:
+    """トップのMarkdown文言を組み立てる（テスト容易性のためbuild_uiから分離）。
+
+    editor_link=True のときだけ /editor へのリンクを載せる。/editor がマウント
+    されていない起動（standaloneのwebapp.py・Colabノート）ではリンクは404になる
+    ため既定では出さない。
+    """
+    text = (
+        "# bandcopy — バンドコピー支援\n"
+        "自分の手持ち音源をアップロードすると、**演奏しやすい難易度に落とした"
+        "楽譜・タブ譜**と**パート別の練習音源**を作ります。個人練習用。"
+    )
+    if editor_link:
+        text += "\n\nドラムだけをグリッドで編集したい場合は[ドラム編集を開く](editor/)。"
+    return text
+
+
+def build_ui(editor_link: bool = False):
+    """Gradio の Blocks を組み立てて返す（起動は別途 .launch()）。
+
+    editor_link: Trueのとき、/editor マウント前提のリンク文言を載せる
+    （serve_all.py が渡す）。standalone起動（webapp.py・Colab）は既定のFalseのまま。
+    """
     import gradio as gr
 
     with gr.Blocks(title="bandcopy") as demo:
-        gr.Markdown(
-            "# bandcopy — バンドコピー支援\n"
-            "自分の手持ち音源をアップロードすると、**演奏しやすい難易度に落とした"
-            "楽譜・タブ譜**と**パート別の練習音源**を作ります。個人練習用。\n\n"
-            "ドラムだけをグリッドで編集したい場合は"
-            "[ドラム編集を開く](editor/)。")
+        gr.Markdown(build_intro_markdown(editor_link))
         with gr.Row():
             audio = gr.Audio(type="filepath", label="音源をアップロード（MP3 / WAV / M4A）")
             with gr.Column():

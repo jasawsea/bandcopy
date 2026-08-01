@@ -27,3 +27,14 @@ def test_build_ui_returns_gradio_blocks():
     import gradio as gr
     ui = build_ui()
     assert isinstance(ui, gr.Blocks)
+
+
+def test_intro_markdown_omits_editor_link_by_default():
+    from app.webapp import build_intro_markdown
+    assert "editor/" not in build_intro_markdown()
+    assert "editor/" not in build_intro_markdown(editor_link=False)
+
+
+def test_intro_markdown_includes_editor_link_when_requested():
+    from app.webapp import build_intro_markdown
+    assert "editor/" in build_intro_markdown(editor_link=True)
