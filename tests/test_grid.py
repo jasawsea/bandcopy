@@ -185,33 +185,38 @@ def test_grid_to_midi_timing_division_4_vs_steps_per_bar():
 
     デフォルト16分: step_ticks = 480/4 = 120, 1小節 = 16 * 120 = 1920
     8分設定:      step_ticks = 1920/8 = 240, 1小節 = 8 * 240 = 1920 ✓同じ
-    32分設定:     step_ticks = 1920/32 = 60,  1小節 = 32 * 60 = 1920 ✓同じ
-    """
-    from app.grid import grid_to_midi
-    division = 480
-    bar_ticks = division * 4  # 1920 ticks per bar
 
-    # spb=16 の場合
+    両グリッドとも小節最後のステップに打点を置き、Note On/Offの実際のデルタタイム
+    （_var_lenエンコード値）が期待どおりの絶対tickに対応することを検証する
+    （test_grid_to_midi_step_timing_with_steps_per_bar_8 と同じ手法）。
+    """
+    from app.grid import grid_to_midi, _var_len
+
+    # spb=16 の場合：最後のステップ(15) -> tick 15*120 = 1800、gate=60
     grid_16 = {
         "tempo": 120.0, "bars": 1, "steps_per_bar": 16,
         "lanes": {lane: [0] * 16 for lane in ("KK", "SN", "HH", "HT", "MT", "FT")},
     }
-    grid_16["lanes"]["KK"][15] = 1  # 小節最後のステップ
+    grid_16["lanes"]["KK"][15] = 1
     midi_16 = grid_to_midi(grid_16)
-    # 予期されるティック位置: 15 * (1920/16) = 15 * 120 = 1800
+    # Note On のデルタ（最初のイベントなので絶対tickそのもの）= 1800
+    assert _var_len(1800) in midi_16
+    # Note Off のデルタ（gate分後）= 60
+    assert _var_len(60) in midi_16
 
-    # spb=8 の場合
+    # spb=8 の場合：最後のステップ(7) -> tick 7*240 = 1680、gate=120
     grid_8 = {
         "tempo": 120.0, "bars": 1, "steps_per_bar": 8,
         "lanes": {lane: [0] * 8 for lane in ("KK", "SN", "HH", "HT", "MT", "FT")},
     }
-    grid_8["lanes"]["KK"][7] = 1  # 小節最後のステップ
+    grid_8["lanes"]["KK"][7] = 1
     midi_8 = grid_to_midi(grid_8)
-    # 予期されるティック位置: 7 * (1920/8) = 7 * 240 = 1680
+    assert _var_len(1680) in midi_8
+    assert _var_len(120) in midi_8
 
-    # どちらも小節内の打点なので、ティック値は 1920 未満のはず
-    # （正確な値の検証は複雑だが、スケーリングが一貫しているか確認）
-    assert len(midi_16) > 0 and len(midi_8) > 0
+    # 1800(spb16) と 1680(spb8) は異なる絶対tickであり、両者を混同すると
+    # このテストは失敗する（＝ステップ幅がsteps_per_barごとに正しく動的計算されている証拠）
+    assert _var_len(1800) != _var_len(1680)
 
 
 def test_var_len_encodes_multibyte_values_correctly():
