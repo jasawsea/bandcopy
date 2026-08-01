@@ -18,17 +18,25 @@
     document.getElementById("load-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const msg = document.getElementById("load-msg");
+      const submitBtn = e.target.querySelector('button[type="submit"]');
       const file = document.getElementById("audio-file").files[0];
       if (!file) return;
       const fd = new FormData();
       fd.append("audio", file);
       msg.textContent = "解析中…（ドラム分離は数分かかることがあります）";
-      const res = await fetch("load", { method: "POST", body: fd });
-      if (res.ok) {
-        location.reload();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        msg.textContent = "! " + (data.error || res.status);
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch("load", { method: "POST", body: fd });
+        if (res.ok) {
+          location.reload();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          msg.textContent = "! " + (data.error || res.status);
+          submitBtn.disabled = false;
+        }
+      } catch (err) {
+        msg.textContent = "! 通信に失敗しました";
+        submitBtn.disabled = false;
       }
     });
   </script>
