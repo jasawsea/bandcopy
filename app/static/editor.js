@@ -84,6 +84,19 @@ async function exportXml() {
   URL.revokeObjectURL(url);
 }
 
+async function exportMidi() {
+  const res = await fetch("export/midi", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(grid),
+  });
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "drums.mid"; a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function saveGrid() {
   const msg = document.getElementById("save-msg");
   const res = await fetch("save-grid", {
@@ -133,6 +146,7 @@ async function autoDraft() {
 
 document.getElementById("render").addEventListener("click", renderScore);
 document.getElementById("export").addEventListener("click", exportXml);
+document.getElementById("export_midi").addEventListener("click", exportMidi);
 document.getElementById("save").addEventListener("click", saveGrid);
 document.getElementById("play").addEventListener("click", togglePlay);
 document.getElementById("thin_kicks").addEventListener("click", () => applyCommand("thin_kicks"));
