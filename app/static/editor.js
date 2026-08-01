@@ -6,6 +6,81 @@ const LANE_LABELS = {
 let grid = null;
 const history = [];                 // 簡略化コマンド前のグリッドを積む（元に戻す用）
 
+let audioCtx = null;
+let playTimers = [];
+let playing = false;
+
+function synthHit(lane, time) {
+  const ctx = audioCtx;
+  if (lane === "KK") {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(120, time);
+    osc.frequency.exponentialRampToValueAtTime(40, time + 0.15);
+    gain.gain.setValueAtTime(1, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(time); osc.stop(time + 0.15);
+  } else if (lane === "SN" || lane === "HH") {
+    const dur = lane === "SN" ? 0.15 : 0.05;
+    const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = lane === "SN" ? "bandpass" : "highpass";
+    filter.frequency.value = lane === "SN" ? 1800 : 8000;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(1, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    noise.connect(filter).connect(gain).connect(ctx.destination);
+    noise.start(time); noise.stop(time + dur);
+  } else {
+    const freqMap = { HT: 220, MT: 180, FT: 140 };
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    const f0 = freqMap[lane] || 160;
+    osc.frequency.setValueAtTime(f0, time);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 0.6, time + 0.2);
+    gain.gain.setValueAtTime(1, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(time); osc.stop(time + 0.2);
+  }
+}
+
+function playGrid() {
+  if (playing || !grid) return;
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  playing = true;
+  document.getElementById("play_grid").disabled = true;
+  document.getElementById("stop_grid").disabled = false;
+  const spb = grid.steps_per_bar;
+  const n = grid.bars * spb;
+  const stepSec = (60 / grid.tempo) / (spb / 4);
+  const startTime = audioCtx.currentTime + 0.05;
+  for (const lane of Object.keys(grid.lanes)) {
+    grid.lanes[lane].forEach((v, i) => {
+      if (v && i < n) synthHit(lane, startTime + i * stepSec);
+    });
+  }
+  const totalMs = (n * stepSec + 0.3) * 1000;
+  playTimers.push(setTimeout(stopGrid, totalMs));
+}
+
+function stopGrid() {
+  playTimers.forEach(clearTimeout);
+  playTimers = [];
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  playing = false;
+  document.getElementById("play_grid").disabled = false;
+  document.getElementById("stop_grid").disabled = true;
+}
+
 async function loadGrid() {
   grid = await (await fetch("grid")).json();
   drawGrid();
@@ -153,4 +228,6 @@ document.getElementById("thin_kicks").addEventListener("click", () => applyComma
 document.getElementById("thin_hihat").addEventListener("click", () => applyCommand("thin_hihat"));
 document.getElementById("undo").addEventListener("click", undo);
 document.getElementById("auto_draft").addEventListener("click", autoDraft);
+document.getElementById("play_grid").addEventListener("click", playGrid);
+document.getElementById("stop_grid").addEventListener("click", stopGrid);
 loadGrid();
