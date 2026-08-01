@@ -138,13 +138,14 @@ def _var_len(value: int) -> bytes:
 def grid_to_midi(grid: dict) -> bytes:
     """グリッドをGMドラム（チャンネル10）のStandard MIDI File(format 0)に変換する。
 
-    16分ステップ固定・division=480（1ステップ=120tick）。各打点は短い固定ゲート
-    （60tick）でNote On/Offを打つ。ファイルI/Oは行わずbytesを返すのみ。
+    1小節 = 4拍分のティック（division * 4）。steps_per_bar から動的にステップ幅を計算。
+    各打点は短い固定ゲート（step_ticks // 2）でNote On/Offを打つ。
+    ファイル I/Oは行わずbytesを返すのみ。
     """
     division = 480
-    step_ticks = division // 4
-    gate = step_ticks // 2
     spb = grid["steps_per_bar"]
+    step_ticks = (division * 4) // spb
+    gate = step_ticks // 2
     n = grid["bars"] * spb
 
     events = []  # (tick, is_note_on, note_num)
