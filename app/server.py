@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from flask import Flask, jsonify, request, Response, send_file, render_template
+from werkzeug.utils import secure_filename
 
 from app.grid import grid_to_musicxml
 from app.render import musicxml_to_svg
@@ -39,7 +40,12 @@ def create_app(state: dict) -> Flask:
             return (jsonify({"error": "音源ファイルがありません"}), 400)
         upload_dir = Path("output") / "_upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = upload_dir / f.filename
+        # Sanitize filename to prevent path traversal attacks
+        safe_filename = secure_filename(f.filename)
+        # If sanitizing yields empty string, fall back to safe default
+        if not safe_filename:
+            safe_filename = "upload"
+        audio_path = upload_dir / safe_filename
         f.save(str(audio_path))
         try:
             grid = build_template_from_audio(str(audio_path))

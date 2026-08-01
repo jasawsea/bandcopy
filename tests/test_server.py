@@ -202,6 +202,9 @@ def test_load_audio_updates_state_and_returns_ok(monkeypatch, tmp_path):
     assert state["grid"] == fake_grid
     assert state["stem_path"] == str(fake_stem)
     assert state["audio_path"].endswith("song.wav")
+    assert state["grid_save_path"] is not None
+    assert "song" in state["grid_save_path"]
+    assert state["grid_save_path"].endswith("drum_grid.json")
     assert (tmp_path / "output" / "_upload" / "song.wav").exists()
 
 
@@ -227,3 +230,84 @@ def test_upload_html_uses_custom_base(tmp_path, monkeypatch):
     html = r.get_data(as_text=True)
     assert '<base href="/editor/">' in html
     assert 'href="../"' in html
+
+
+def test_load_audio_sanitizes_absolute_path_filename(monkeypatch, tmp_path):
+    """絶対パスファイル名が upload_dir に留まること（パストラバーサル防止）"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+    # クライアントから /etc/passwd のような絶対パスが送られてくる（攻撃）
+    data = {"audio": (io.BytesIO(b"fake wav data"), "/etc/passwd")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200
+    # ファイルが output/_upload 配下に保存されていること、/etc 配下ではないこと
+    saved_audio_path = state["audio_path"]
+    upload_dir_resolved = (tmp_path / "output" / "_upload").resolve()
+    saved_path_resolved = Path(saved_audio_path).resolve()
+    # ファイルが upload_dir 内にあることを確認
+    assert upload_dir_resolved in saved_path_resolved.parents
+    # saved_path_resolved が /etc で始まっていないことを確認
+    assert not str(saved_path_resolved).startswith("/etc")
+
+
+def test_load_audio_sanitizes_dotdot_path_segment(monkeypatch, tmp_path):
+    """.. セグメントがあるファイル名が上位ディレクトリにエスケープしないこと"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+    # ファイル名が .. を含む
+    data = {"audio": (io.BytesIO(b"fake wav data"), "../../escaped.wav")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200
+    # ファイルが output/_upload 配下に保存されていること
+    saved_audio_path = state["audio_path"]
+    assert (tmp_path / "output" / "_upload").resolve() in Path(saved_audio_path).resolve().parents
+
+
+def test_load_audio_sanitizes_empty_filename_to_default(monkeypatch, tmp_path):
+    """サニタイズ後に空になるファイル名がデフォルト名になること"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+    # ファイル名が .. や / だけ（サニタイズ後は空）
+    data = {"audio": (io.BytesIO(b"fake wav data"), "..")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200
+    # デフォルト名 "upload" が使われていること
+    saved_audio_path = state["audio_path"]
+    assert Path(saved_audio_path).name == "upload"
+    assert (tmp_path / "output" / "_upload" / "upload").exists()
+
+
+def test_load_audio_sets_grid_save_path_from_sanitized_filename(monkeypatch, tmp_path):
+    """grid_save_path が (サニタイズ後の) ファイル名の stem から導出されること"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None, "grid_save_path": None}
+    client = create_app(state).test_client()
+    data = {"audio": (io.BytesIO(b"fake wav data"), "song.wav")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert state["grid_save_path"] is not None
+    assert "song" in state["grid_save_path"]
+    assert state["grid_save_path"].endswith("drum_grid.json")
