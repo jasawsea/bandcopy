@@ -9,6 +9,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, Response, send_file, render_template
 from werkzeug.utils import secure_filename
 
+from app import lanes
 from app.grid import grid_to_musicxml, grid_to_midi
 from app.render import musicxml_to_svg
 from app.drum_simplify import thin_kicks, thin_hihat
@@ -58,7 +59,8 @@ def create_app(state: dict) -> Flask:
         base = state.get("base", "/")
         if not state.get("grid"):
             return render_template("upload.html", base=base)
-        return render_template("editor.html", base=base)
+        # レーン定義はサーバ側（app/lanes.py）を単一ソースにしてJSへ渡す
+        return render_template("editor.html", base=base, lanes=lanes.editor_payload())
 
     @app.get("/grid")
     def get_grid():

@@ -33,6 +33,8 @@
   <audio id="audio" src="stem" preload="none"></audio>
   <div id="grid"></div>
   <div id="score"></div>
+  <!-- レーン定義はサーバ(app/lanes.py)が単一ソース。JSはこれを読む -->
+  <script>window.BANDCOPY_LANES = {{ lanes|tojson }};</script>
   <script src="static/editor.js"></script>
 </body>
 </html>

@@ -211,6 +211,27 @@ def test_index_shows_editor_page_when_grid_loaded():
     assert "アップロード" not in r.get_data(as_text=True)
 
 
+def test_editor_page_embeds_lane_definitions_for_the_browser():
+    # レーン定義はサーバ(app/lanes.py)が単一ソース。JSはこれを読むので埋め込みが要る
+    import json
+    import re
+    from app import lanes
+
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None}
+    html = create_app(state).test_client().get("/").get_data(as_text=True)
+    m = re.search(r"window\.BANDCOPY_LANES = (.+?);</script>", html, re.S)
+    assert m, "レーン定義がページに埋め込まれていない"
+    # 埋め込まれた実データが app/lanes.py の定義と一致すること（表示順も含めて）
+    assert json.loads(m.group(1)) == lanes.editor_payload()
+
+
+def test_editor_js_reads_lane_definitions_instead_of_hardcoding_them():
+    # レーンを増やすときJSを直さなくて済むこと（ハードコードへの逆戻り防止）
+    js = Path("app/static/editor.js").read_text()
+    assert "window.BANDCOPY_LANES" in js
+    assert '"ハイハット"' not in js and "'ハイハット'" not in js
+
+
 def test_load_audio_without_file_returns_400():
     state = {"grid": None, "stem_path": None}
     r = create_app(state).test_client().post(

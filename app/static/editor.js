@@ -1,8 +1,8 @@
-const LANES = ["HH", "HT", "MT", "FT", "SN", "KK"];   // 上から表示
-const LANE_LABELS = {
-  HH: "ハイハット", HT: "ハイタム", MT: "ミッドタム",
-  FT: "フロアタム", SN: "スネア", KK: "キック",
-};
+// レーン定義はサーバ(app/lanes.py)が単一ソース。editor.html が window.BANDCOPY_LANES に埋め込む
+const LANE_SPECS = window.BANDCOPY_LANES || [];
+const LANES = LANE_SPECS.map((s) => s.key);            // 上から表示
+const LANE_LABELS = Object.fromEntries(LANE_SPECS.map((s) => [s.key, s.label]));
+const LANE_CSS = Object.fromEntries(LANE_SPECS.map((s) => [s.key, s.css]));
 let grid = null;
 const history = [];                 // 簡略化コマンド前のグリッドを積む（元に戻す用）
 
@@ -131,7 +131,7 @@ function drawGrid() {
     row.appendChild(label);
     grid.lanes[lane].forEach((v, i) => {
       const cell = document.createElement("div");
-      const extra = lane === "HH" ? " hh" : (["HT", "MT", "FT"].includes(lane) ? " tom" : "");
+      const extra = LANE_CSS[lane] ? " " + LANE_CSS[lane] : "";
       cell.className = "cell" + (v ? " on" : "") + extra;
       if (i % (spb / 4) === 0) cell.classList.add("beat");  // 拍頭
       cell.addEventListener("click", () => {

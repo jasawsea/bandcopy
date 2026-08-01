@@ -1,8 +1,11 @@
 """ドラム音源 → グリッドの自動下書き（A1: 依存ゼロNMF）。
 
 KK/SN/HH の3レーンだけ自動で埋める。タム(HT/MT/FT)は全0で返し人が手入力する。
+どのレーンが自動対象かは app/lanes.py の auto フラグが単一ソース。
 """
 import numpy as np
+
+from app import lanes as lane_defs
 
 
 def quantize_onsets_to_grid(onset_times, step_times):
@@ -125,7 +128,7 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
     step_times = [s * step_sec for s in range(n)]
 
     freqs = np.fft.rfftfreq(n_fft, 1 / sr)
-    lanes = {lane: [0] * n for lane in ("HH", "HT", "MT", "FT", "SN", "KK")}
+    lanes = {lane: [0] * n for lane in lane_defs.keys()}
 
     # KK=行0, SN=行1：オンセットを拾い、弱い打点(ゴースト)を除いて量子化して置く
     for row, lane in ((0, "KK"), (1, "SN")):

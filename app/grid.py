@@ -1,15 +1,19 @@
-"""グリッド（ドラム打点）の模型と、楽譜への変換。"""
+"""グリッド（ドラム打点）の模型と、楽譜への変換。
+
+レーンの定義（ラベル・記譜位置・GMノート番号）は app/lanes.py が単一ソース。
+"""
+from app import lanes as _lanes
 
 
 def make_template_grid(tempo: float, bars: int, steps_per_bar: int = 16) -> dict:
     """テンポに合わせた基本8ビートのグリッドを生成する。
 
     キック=1・3拍、スネア=2・4拍、ハイハット=8分。編集の出発点。
+    タム(HT/MT/FT)は空のまま＝人が手入力する。
     """
     n = bars * steps_per_bar
-    kk = [0] * n
-    sn = [0] * n
-    hh = [0] * n
+    grid_lanes = {key: [0] * n for key in _lanes.keys()}
+    hh, sn, kk = grid_lanes["HH"], grid_lanes["SN"], grid_lanes["KK"]
     for b in range(bars):
         base = b * steps_per_bar
         for s in range(0, steps_per_bar, 2):   # 8分＝2ステップおき
@@ -22,14 +26,7 @@ def make_template_grid(tempo: float, bars: int, steps_per_bar: int = 16) -> dict
         "tempo": tempo,
         "bars": bars,
         "steps_per_bar": steps_per_bar,
-        "lanes": {
-            "HH": hh,
-            "HT": [0] * n,   # ハイタム（人が手入力）
-            "MT": [0] * n,   # ミッドタム
-            "FT": [0] * n,   # フロアタム
-            "SN": sn,
-            "KK": kk,
-        },
+        "lanes": grid_lanes,
     }
 
 
@@ -53,15 +50,8 @@ def fit_grid_to_bars(grid: dict, bars: int) -> dict:
     return out
 
 
-# レーンごとの記譜位置（displayStep, displayOctave, notehead）
-LANE_NOTATION = {
-    "HH": ("G", 5, "x"),    # ハイハット：上第1線上・×符頭
-    "HT": ("E", 5, None),   # ハイタム：第4間
-    "MT": ("D", 5, None),   # ミッドタム：第4線
-    "SN": ("C", 5, None),   # スネア：第3間
-    "FT": ("A", 4, None),   # フロアタム：第2間
-    "KK": ("F", 4, None),   # キック：下第1間
-}
+# レーンごとの記譜位置（displayStep, displayOctave, notehead）＝ app/lanes.py 由来
+LANE_NOTATION = _lanes.notation_map()
 
 
 def grid_to_score(grid: dict):
@@ -115,14 +105,8 @@ def grid_to_musicxml(grid: dict) -> str:
     return GeneralObjectExporter(sc).parse().decode("utf-8")
 
 
-LANE_MIDI_NOTE = {
-    "KK": 36,   # Bass Drum 1
-    "SN": 38,   # Acoustic Snare
-    "HH": 42,   # Closed Hi-Hat
-    "HT": 50,   # High Tom
-    "MT": 47,   # Low-Mid Tom
-    "FT": 43,   # High Floor Tom
-}
+# レーン→GMドラムのノート番号（チャンネル10）＝ app/lanes.py 由来
+LANE_MIDI_NOTE = _lanes.midi_note_map()
 
 
 def _var_len(value: int) -> bytes:
