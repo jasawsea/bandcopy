@@ -359,6 +359,8 @@ Colabのclone元となるPublicリポジトリを公開した。
 - タブ譜：`./venv/bin/python tab.py <出力フォルダ> --level 3 [--pdf]`
 - ドラムエディタ：`PORT=5050 EDITOR_STEM=<ドラムwav> ./venv/bin/python run_editor.py <音源>`
 - Web UI（ローカル）：`./venv/bin/python webapp.py` → http://127.0.0.1:7860
+- **統合（1URL・2026-08-01〜）**：`./venv/bin/python serve_all.py` → http://127.0.0.1:7860
+  （`/`＝みんな用Gradio・`/editor/`＝ドラムエディタ。`PORT`/`HOST`で変更可）
 
 **未了・次の一手**
 - ~~GitHub公開~~ → **完了**（2026-07-27・上記セクション参照。https://github.com/jasawsea/bandcopy ）。
@@ -417,7 +419,62 @@ gitブランチ `drum-adt-a1`（全82テスト緑）。superpowers subagent-driv
 
 </details>
 
-### 次の機能：アプリ統合＋ドラム再生/MIDI（設計済み・未実装／2026-07-30 区切り）
+### アプリ統合（1URL）＋ドラム再生/MIDI書き出し 実装完了（2026-08-01）
+設計→計画→実装→レビューまで完了。gitブランチ `integrate-and-drum-playback`（**全119テスト緑**・
+ベースライン82から+37）。superpowers subagent-driven-development で8タスクを実行。
+- **設計書** `docs/2026-07-30-integrate-and-drum-playback-design.md` ／
+  **計画** `docs/superpowers/plans/2026-08-01-integrate-and-drum-playback-plan.md`
+
+**① アプリ統合＝`serve_all.py` が新しい主エントリ**
+- `./venv/bin/python serve_all.py` → `/`＝みんな用Gradio、`/editor/`＝ドラムエディタ。
+  `PORT`（既定7860）・`HOST`（既定127.0.0.1）で変更可。`/editor`（末尾スラなし）は307で`/editor/`へ。
+- FastAPIに Flaskエディタを `WSGIMiddleware` でマウント＋`gr.mount_gradio_app`。**新規依存ゼロ**
+  （fastapi/uvicorn/starletteはgradio依存で導入済み）。※**マウント順が重要**：`/editor`を先に
+  mountしないとGradioのルートマウントに食われる。
+- **エディタURLは全て相対＋`<base href="{{ base }}">`**（既定`/`・マウント時`/editor/`）。
+  これが統合の生命線で、絶対パスを1つ書くと`/editor`配下で壊れる。`fetch("/`混入を検出する
+  ソースレベルのテストを`tests/test_server.py`に置いてある。
+- エディタに音源アップロード入口 `POST /load`（＋`POST /reset`＝「別の曲を読み込む」）。
+  未ロード時は`upload.html`、ロード後は`editor.html`を出す分岐。
+- Gradio側の「ドラム編集を開く」リンクは **opt-in**（`build_ui(editor_link=True)`）。`serve_all`だけ
+  Trueを渡す。**単体の`webapp.py`とColabノートではリンクを出さない**（マウントが無く404になるため）。
+
+**② ドラム再生＋MIDI書き出し**
+- `app/grid.py` に `grid_to_midi(grid)->bytes`（純関数・自前SMF format0・GMドラムch10。
+  KK36/SN38/HH42/HT50/MT47/FT43）。**ステップ幅は`steps_per_bar`から導出**
+  （`(480*4)//spb`）＝`grid_to_score`と一致。music21でパース検証済み。
+- `POST /export/midi` → `drums.mid` をattachmentで返す（`/export/musicxml`と同じ様式）。
+- 「▶ グリッドを再生」＝Web Audio合成音（KK=減衰サイン／SN・HH=ノイズ＋フィルタ／タム=ピッチ付き）。
+  ノイズバッファはAudioContextごとに1つ再利用（フル尺で毎打点確保しないため）。停止は
+  `AudioContext.close()`で予約済みの音ごと止める。既存の「▶ ドラム音源を再生」（分離WAV）とは別物。
+- **実機検証**：単体起動とマウント配下の両方で、再生156ノード／HH間隔348ms＝86.13BPMの8分と一致・
+  停止でctx closed・編集が次の再生に反映・`drums.mid`ダウンロード・コンソールエラーなしを確認。
+
+**引き継ぎ注意（次に触る人へ）**
+- **エントリが3つ**になった。使い分け：配布・両方使う＝`serve_all.py`／みんな用だけ＝`webapp.py`／
+  ドラム編集を1曲固定で速く＝`run_editor.py`（`EDITOR_STEM`でDemucs省略可）。
+- **日本語ファイル名のアップロード**は `secure_filename` が非ASCIIを落とすため、
+  `upload_<ハッシュ10桁>.<拡張子>` に改名して保存する（拡張子は保持・衝突しない）。その結果
+  `grid_save_path` も `output/upload_<hash>/drum_grid.json` になるので、**`score_all.py`の
+  自動拾いは日本語名では一致しない**。エディタが「✓保存しました:」で実パスを出すので、
+  `score_all --drum-grid <path>` で明示指定する。ASCII名なら従来どおり自動で拾える。
+- **`bandcopy.py`はCLI用に`sys.exit(1)`する**ので、HTTP経路（`/load`・`/auto-draft`）は
+  `except (Exception, SystemExit)`で受けて400＋日本語にしている。新しいルートを足すときも同じ扱いに。
+- **`starlette.middleware.wsgi.WSGIMiddleware`はDeprecated**（starlette 1.3.1）。新規依存ゼロを
+  優先して`a2wsgi`を入れず据え置き。starletteが実際に削除したら移行が必要。
+- **単一利用者前提と「1URLを配る」は緊張関係にある**：2人が同じURLでエディタを開くと同じ
+  サーバstateを共有する。設計上の割り切りだが、次に触る人は必ずここで驚くので明記しておく。
+- **ドラムレーン定義が4箇所に散在**（`app/grid.py`の`LANE_NOTATION`/`LANE_MIDI_NOTE`、
+  `editor.js`の`LANES`/`LANE_LABELS`、`drum_transcribe`/`drum_simplify`）。クラッシュ/ライドを
+  足すときは全部直す必要がある。`app/parts.py`と同じ単一ソース化が次の自然なリファクタ。
+- **未反映のドキュメント**：`README.md`は`webapp.py`のまま、`手順書.md`にはエディタ/アップロードの
+  記載が無い。非エンジニア向けの説明を書くならここ。
+- **Colab公開トンネルが`/editor`まで通るかは未検証**（設計時からのスコープ外）。
+  `bandcopy_colab.ipynb`は今も`build_ui().launch(share=True)`＝エディタ無し。通らなければ
+  cloudflared/ngrokで1ポート丸ごとトンネルする案が設計書にある。
+
+<details><summary>旧・設計フェーズ時点のメモ（2026-07-30）</summary>
+
 brainstormingで設計まで完了。**次回は「設計書レビュー→writing-plans→実装」から**。数日規模。
 - **設計書**：`docs/2026-07-30-integrate-and-drum-playback-design.md`（コミット済み e89afed）。
 - **やっさん承認済みの決定事項**：
@@ -434,3 +491,5 @@ brainstormingで設計まで完了。**次回は「設計書レビュー→writi
       配布は現状可能・アプリ内再生は将来課題。
   - **割り切り**：単一利用者前提／ドラムのみ／合成音（本物の音源は将来）。
 - **次の具体アクション**：設計書レビュー→OKなら writing-plans→subagent-driven-developmentで実装。
+
+</details>
