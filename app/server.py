@@ -134,7 +134,9 @@ def create_app(state: dict) -> Flask:
                 grid = transcribe_drums(stem, g.get("tempo", 120.0), g.get("bars", 1))
             else:
                 grid = transcribe_drum_from_audio(state["audio_path"])
-        except Exception:
+        except (Exception, SystemExit):
+            # Demucs失敗時に separate_stems が sys.exit(1) するため SystemExit も拾う
+            logger.exception("自動採譜に失敗")
             return (jsonify({"error": "自動採譜に失敗しました"}), 400)
         return jsonify(grid)
 

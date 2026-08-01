@@ -21,7 +21,8 @@ def build_app() -> FastAPI:
     def editor_redirect():
         # 末尾スラなし ("/editor") はマウント配下に入らず404になるため、
         # 正しいマウントパス ("/editor/") へリダイレクトする。
-        return RedirectResponse(url="/editor/")
+        # 相対指定にしてパスプレフィックス下でも壊れないようにする。
+        return RedirectResponse(url="editor/")
 
     editor_state = {
         "grid": None,

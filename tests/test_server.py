@@ -146,6 +146,21 @@ def test_auto_draft_400_when_transcription_fails(monkeypatch, tmp_path):
     assert "error" in res.get_json()
 
 
+def test_auto_draft_400_when_separation_calls_sys_exit(monkeypatch, tmp_path):
+    # Demucs失敗時 separate_stems は sys.exit(1)＝SystemExit。500ではなく400を返すこと
+    def bail(*a, **k):
+        raise SystemExit(1)
+
+    monkeypatch.setattr("app.server.transcribe_drums", bail)
+    stem_path = tmp_path / "drums.wav"
+    stem_path.write_bytes(b"RIFF0000WAVE")
+    state = {"grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
+             "stem_path": str(stem_path), "audio_path": None}
+    res = create_app(state).test_client().post("/auto-draft")
+    assert res.status_code == 400
+    assert "自動採譜に失敗しました" in res.get_json()["error"]
+
+
 def test_index_default_base_uses_root_and_relative_asset_paths():
     state = {"grid": make_template_grid(100.0, 1), "stem_path": None}
     r = create_app(state).test_client().get("/")

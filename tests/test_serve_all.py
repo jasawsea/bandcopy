@@ -38,4 +38,13 @@ def test_editor_without_trailing_slash_redirects():
     client = TestClient(build_app(), follow_redirects=False)
     r = client.get("/editor")
     assert r.status_code in (301, 302, 307, 308)
-    assert r.headers["location"].endswith("/editor/")
+    # Locationは相対（パスプレフィックス下でも壊れないため）。解決先が /editor/ であることを見る
+    assert str(r.next_request.url.path) == "/editor/"
+
+
+def test_editor_without_trailing_slash_redirect_reaches_editor():
+    # 追跡した先が実際にエディタ画面（200）であること
+    client = TestClient(build_app())
+    r = client.get("/editor")
+    assert r.status_code == 200
+    assert str(r.url.path) == "/editor/"

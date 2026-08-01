@@ -214,9 +214,9 @@ def test_grid_to_midi_timing_division_4_vs_steps_per_bar():
     assert _var_len(1680) in midi_8
     assert _var_len(120) in midi_8
 
-    # 1800(spb16) と 1680(spb8) は異なる絶対tickであり、両者を混同すると
-    # このテストは失敗する（＝ステップ幅がsteps_per_barごとに正しく動的計算されている証拠）
-    assert _var_len(1800) != _var_len(1680)
+    # 取り違えの検出：spb=8 の出力に spb=16 のtick(1800)が現れてはいけない（逆も同様）
+    assert _var_len(1800) not in midi_8
+    assert _var_len(1680) not in midi_16
 
 
 def test_var_len_encodes_multibyte_values_correctly():
