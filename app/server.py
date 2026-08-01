@@ -9,7 +9,7 @@ from app.grid import grid_to_musicxml
 from app.render import musicxml_to_svg
 from app.drum_simplify import thin_kicks, thin_hihat
 from app.drum_transcribe import transcribe_drums
-from app.analyze import transcribe_drum_from_audio
+from app.analyze import transcribe_drum_from_audio, build_template_from_audio, separate_drum_stem
 
 # エディタの簡略化コマンド名 → 変換関数
 SIMPLIFY_COMMANDS = {
@@ -23,11 +23,34 @@ def create_app(state: dict) -> Flask:
 
     @app.get("/")
     def index():
-        return render_template("editor.html", base=state.get("base", "/"))
+        base = state.get("base", "/")
+        if not state.get("grid"):
+            return render_template("upload.html", base=base)
+        return render_template("editor.html", base=base)
 
     @app.get("/grid")
     def get_grid():
         return jsonify(state["grid"])
+
+    @app.post("/load")
+    def load_audio():
+        f = request.files.get("audio")
+        if f is None:
+            return (jsonify({"error": "音源ファイルがありません"}), 400)
+        upload_dir = Path("output") / "_upload"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        audio_path = upload_dir / f.filename
+        f.save(str(audio_path))
+        try:
+            grid = build_template_from_audio(str(audio_path))
+            stem = separate_drum_stem(str(audio_path), str(Path("output") / "_editor"))
+        except Exception:
+            return (jsonify({"error": "音源の解析に失敗しました"}), 400)
+        state["grid"] = grid
+        state["stem_path"] = stem
+        state["audio_path"] = str(audio_path)
+        state["grid_save_path"] = str(Path("output") / audio_path.stem / "drum_grid.json")
+        return jsonify({"loaded": True})
 
     @app.post("/render")
     def render():

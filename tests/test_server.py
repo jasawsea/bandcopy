@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 
 from app.grid import make_template_grid
@@ -164,3 +165,65 @@ def test_editor_html_source_has_no_absolute_asset_paths():
 def test_editor_js_source_has_no_absolute_fetch_paths():
     js = Path("app/static/editor.js").read_text()
     assert 'fetch("/' not in js
+
+
+def test_index_shows_upload_page_when_no_grid_loaded():
+    state = {"grid": None, "stem_path": None}
+    r = create_app(state).test_client().get("/")
+    assert "アップロード" in r.get_data(as_text=True)
+
+
+def test_index_shows_editor_page_when_grid_loaded():
+    state = {"grid": make_template_grid(100.0, 1), "stem_path": None}
+    r = create_app(state).test_client().get("/")
+    assert "ドラムエディタ" in r.get_data(as_text=True)
+    assert "アップロード" not in r.get_data(as_text=True)
+
+
+def test_load_audio_without_file_returns_400():
+    state = {"grid": None, "stem_path": None}
+    r = create_app(state).test_client().post(
+        "/load", data={}, content_type="multipart/form-data")
+    assert r.status_code == 400
+
+
+def test_load_audio_updates_state_and_returns_ok(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+    data = {"audio": (io.BytesIO(b"fake wav data"), "song.wav")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert state["grid"] == fake_grid
+    assert state["stem_path"] == str(fake_stem)
+    assert state["audio_path"].endswith("song.wav")
+    assert (tmp_path / "output" / "_upload" / "song.wav").exists()
+
+
+def test_load_audio_failure_returns_400(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    def boom(p):
+        raise RuntimeError("解析エラー")
+
+    monkeypatch.setattr("app.server.build_template_from_audio", boom)
+    state = {"grid": None, "stem_path": None}
+    client = create_app(state).test_client()
+    data = {"audio": (io.BytesIO(b"x"), "a.wav")}
+    r = client.post("/load", data=data, content_type="multipart/form-data")
+    assert r.status_code == 400
+    assert "error" in r.get_json()
+
+
+def test_upload_html_uses_custom_base(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    state = {"grid": None, "stem_path": None, "base": "/editor/"}
+    r = create_app(state).test_client().get("/")
+    html = r.get_data(as_text=True)
+    assert '<base href="/editor/">' in html
+    assert 'href="../"' in html

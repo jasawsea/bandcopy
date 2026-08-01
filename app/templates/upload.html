@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>bandcopy ドラムエディタ</title>
+  <base href="{{ base }}">
+</head>
+<body>
+  <h1>ドラムエディタ</h1>
+  {% if base != '/' %}<p><a href="../">みんな用に戻る</a></p>{% endif %}
+  <p>音源をアップロードするとドラムを分離してグリッド編集を開始します。</p>
+  <form id="load-form">
+    <input type="file" id="audio-file" accept="audio/*" required>
+    <button type="submit">音源をアップロードして開始</button>
+  </form>
+  <p id="load-msg"></p>
+  <script>
+    document.getElementById("load-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("load-msg");
+      const file = document.getElementById("audio-file").files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append("audio", file);
+      msg.textContent = "解析中…（ドラム分離は数分かかることがあります）";
+      const res = await fetch("load", { method: "POST", body: fd });
+      if (res.ok) {
+        location.reload();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        msg.textContent = "! " + (data.error || res.status);
+      }
+    });
+  </script>
+</body>
+</html>
