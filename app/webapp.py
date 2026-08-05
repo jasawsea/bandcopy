@@ -24,6 +24,73 @@ def _zip_dir(src_dir, dest_zip):
     return str(dest_zip)
 
 
+def build_fetch_options(outdir, quality=192):
+    """URL取り込み用の yt-dlp 設定を組み立てる（テスト容易性のため分離）。
+
+    **ファイル名は動画ID**（`%(id)s`）にする。日本語タイトルのまま保存すると
+    Demucs のパス処理で失敗することがあるため（CLAUDE.md の既知の注意点）。
+    CLI の `getaudio.py --ascii-name` と同じ扱い。
+
+    **noplaylist=True が要**：`&list=RD...` 付きのURL（YouTubeの自動生成
+    ミックス等）をそのまま貼られたとき、外すと再生リスト全曲を落としてしまう。
+    """
+    return {
+        "format": "bestaudio/best",
+        "outtmpl": str(Path(outdir) / "%(id)s.%(ext)s"),
+        "postprocessors": [
+            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
+             "preferredquality": str(quality)},
+            {"key": "FFmpegMetadata"},
+        ],
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "retries": 3,
+    }
+
+
+def fetch_audio_from_url(url, outdir="audio", quality=192, ydl_factory=None):
+    """動画URLから音声を取り出し、(MP3のパス, タイトル) を返す。
+
+    ydl_factory はテスト用の差し替え口（既定は yt_dlp.YoutubeDL）。
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    if ydl_factory is None:
+        import yt_dlp
+        ydl_factory = yt_dlp.YoutubeDL
+
+    with ydl_factory(build_fetch_options(outdir, quality)) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    if not info or not info.get("id"):
+        raise ValueError("動画の情報を取得できませんでした。URLを確認してください。")
+    path = outdir / f"{info['id']}.mp3"
+    if not path.exists():
+        raise FileNotFoundError(
+            "音声の取り出しに失敗しました（ffmpeg が入っているか確認してください）。")
+    return str(path), info.get("title") or info["id"]
+
+
+def resolve_input(audio_path, url, outdir="audio", fetcher=None):
+    """アップロードとURLのどちらを使うかを決め、(音源パス, 通知文) を返す。
+
+    URLが入っていればURLを優先する（両方入っている場合の挙動を決め打ちにして
+    「どっちが使われたか分からない」を避ける）。使えるものが無ければ (None, 案内文)。
+    """
+    fetcher = fetcher or fetch_audio_from_url
+    url = (url or "").strip()
+    if url:
+        path, title = fetcher(url, outdir=outdir)
+        note = f"「{title}」を取り込みました。"
+        if audio_path:
+            note += "（URLを優先し、アップロードした音源は使っていません）"
+        return path, note
+    if audio_path:
+        return audio_path, ""
+    return None, "音源をアップロードするか、動画URLを貼ってください。"
+
+
 def process(audio_path, level=3, six=False, workdir=None):
     """1曲を処理し、ダウンロード用のファイル群を dict で返す。
 
@@ -85,8 +152,9 @@ def build_intro_markdown(editor_link: bool = False) -> str:
     """
     text = (
         "# bandcopy — バンドコピー支援\n"
-        "自分の手持ち音源をアップロードすると、**演奏しやすい難易度に落とした"
-        "楽譜・タブ譜**と**パート別の練習音源**を作ります。個人練習用。"
+        "**動画URLを貼る**か、**手持ちの音源をアップロード**すると、"
+        "**演奏しやすい難易度に落とした楽譜・タブ譜**と"
+        "**パート別の練習音源**を作ります。個人練習用。"
     )
     if editor_link:
         text += "\n\nドラムだけをグリッドで編集したい場合は[ドラム編集を開く](editor/)。"
@@ -103,8 +171,12 @@ def build_ui(editor_link: bool = False):
 
     with gr.Blocks(title="bandcopy") as demo:
         gr.Markdown(build_intro_markdown(editor_link))
+        url = gr.Textbox(
+            label="動画URL（YouTube等）",
+            placeholder="https://www.youtube.com/watch?v=... を貼り付け",
+            info="URLを貼るとここから音源を取り込みます。手持ちのファイルを使うときは空のままで。")
         with gr.Row():
-            audio = gr.Audio(type="filepath", label="音源をアップロード（MP3 / WAV / M4A）")
+            audio = gr.Audio(type="filepath", label="または音源をアップロード（MP3 / WAV / M4A）")
             with gr.Column():
                 level = gr.Slider(1, 5, value=3, step=1,
                                   label="難易度（1=最も簡単 / 5=原曲どおり）")
@@ -117,14 +189,19 @@ def build_ui(editor_link: bool = False):
         tab_files = gr.File(label="タブ譜（ギター/ベースのPDF）", file_count="multiple")
         stems_file = gr.File(label="パート別の練習音源（zip）")
 
-        def _run(audio_path, lv, s):
-            if not audio_path:
-                return "音源をアップロードしてください。", None, None, None, None
-            r = process(audio_path, level=int(lv), six=bool(s))
-            return (r["message"], r["preview"], r["band_pdf"],
+        def _run(audio_path, url_text, lv, s):
+            try:
+                path, note = resolve_input(audio_path, url_text)
+            except Exception as e:                       # 取り込み失敗は日本語で返す
+                return f"取り込みに失敗しました: {e}", None, None, None, None
+            if not path:
+                return note, None, None, None, None
+            r = process(path, level=int(lv), six=bool(s))
+            msg = f"{note}\n\n{r['message']}" if note else r["message"]
+            return (msg, r["preview"], r["band_pdf"],
                     r["tab_pdfs"], r["stems_zip"])
 
-        run.click(_run, [audio, level, six],
+        run.click(_run, [audio, url, level, six],
                   [message, preview, band_file, tab_files, stems_file])
 
     return demo
