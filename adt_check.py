@@ -38,32 +38,30 @@ def positional_stats(grid: dict, lane: str) -> dict:
     }
 
 
-def separation_quality(drum_wav: str) -> dict:
-    """キックとスネアを区別できているかを測る。
+def separation_quality(grid: dict, drum_wav: str) -> dict:
+    """キックとスネアを区別できているかを、**出力グリッドそのもの**で測る。
 
-    同じ瞬間を両方の成分が主張していれば、それは「音が鳴った」しか分かっておらず
-    楽器の判別ができていないということ。
+    同じステップを両方のレーンが主張していれば、それは「音が鳴った」しか分かって
+    おらず楽器の判別ができていないということ。
+
+    ※ 2026-08-05 に測り方を変えた。以前は採譜とは別のFFT設定でNMFを回し直して
+      内部の活性を見ていたので、実際にユーザーが受け取るグリッドを測れていなかった。
+      判定基準（重複50%未満）は据え置き。
     """
     import librosa
-    from app.drum_transcribe import (build_drum_templates, nmf_activations,
-                                     _onsets_from_activation)
+
+    kk = grid["lanes"]["KK"]
+    sn = grid["lanes"]["SN"]
+    both = sum(1 for a, b in zip(kk, sn) if a and b)
 
     y, sr = librosa.load(drum_wav, sr=None, mono=True)
-    hop, n_fft = 512, 2048
-    S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
-    H = nmf_activations(S, build_drum_templates(sr, n_fft))
-    kk, _ = _onsets_from_activation(H[0], sr, hop, wait=3)
-    sn, _ = _onsets_from_activation(H[1], sr, hop, wait=3)
-    raw = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop, units="time")
-
-    sn_arr = np.asarray(sn)
-    both = sum(1 for t in kk if len(sn_arr) and np.min(np.abs(sn_arr - t)) < 0.03)
+    raw = librosa.onset.onset_detect(y=y, sr=sr, hop_length=512, units="time")
     return {
         "raw_onsets": len(raw),
-        "kick_onsets": len(kk),
-        "snare_onsets": len(sn),
+        "kick_onsets": sum(kk),
+        "snare_onsets": sum(sn),
         "overlap": both,
-        "overlap_pct": both / max(len(kk), 1) * 100,
+        "overlap_pct": both / max(sum(kk), 1) * 100,
     }
 
 
@@ -109,10 +107,10 @@ def main():
     print("=" * 62)
     print("② どの太鼓かを判別できているか")
     print("=" * 62)
-    q = separation_quality(args.drum_wav)
+    q = separation_quality(grid, args.drum_wav)
     print(f"  素のオンセット {q['raw_onsets']}個 / "
           f"キック {q['kick_onsets']}個 / スネア {q['snare_onsets']}個")
-    print(f"  同じ瞬間を両方が主張: {q['overlap']}個 = キックの {q['overlap_pct']:.0f}%")
+    print(f"  同じステップを両方が主張: {q['overlap']}個 = キックの {q['overlap_pct']:.0f}%")
     ok_sep = q["overlap_pct"] < 50
     print(f"  → {'判別できている' if ok_sep else '判別できていない（音が鳴ったことしか分かっていない）'}")
     print()

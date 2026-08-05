@@ -1,30 +1,195 @@
-"""ドラム音源 → グリッドの自動下書き（A1: 依存ゼロNMF）。
+"""ドラム音源 → グリッドの自動下書き（帯域フラックス＋拍同期グリッド）。
 
 KK/SN/HH の3レーンだけ自動で埋める。タム(HT/MT/FT)は全0で返し人が手入力する。
 どのレーンが自動対象かは app/lanes.py の auto フラグが単一ソース。
+
+**2026-08-05 に方式を入れ替えた。** 旧方式（固定テンプレートのNMF＋成分ごとの
+独立オンセット検出＋t=0起点の固定グリッド）は実曲で譜面にならなかった。切り分けた
+結果、原因は2つあり、どちらもここで直している：
+
+1. **グリッドが t=0 起点だった。** 実際の1拍目は無音や息継ぎの後に来るので、
+   打点は小節内のでたらめな位置に落ちる。実測で「拍がグリッドの拍位置に乗る割合
+   17%（偶然25%を下回る）」。
+   → ビート追従で拍を取り、拍列を線形補間してステップ時刻を作る。テンポ揺れにも
+     追従する。小節の位相（どの拍が小節頭か）はキックが小節頭に集まる向きを選ぶ。
+
+2. **楽器の判別が活性の「大きさ」に対する独立ピーク検出だった。** 低域の残響で
+   活性が常に高く、キックとスネアが同じ瞬間を87〜94%も同時主張していた。
+   → 帯域の「立ち上がり」（半波整流微分＝フラックス）を、グリッドの各ステップの
+     窓内で見る方式に変えた。オンセット起点ではなくグリッド起点なので、1ステップ
+     1レーンにつき最大1打点になり、過検出が構造的に起きない。
+
+※ 2026-08-02 の再開メモが挙げていた候補（floor除去・残差成分の追加・勝者総取り）は
+   実測で全て外れだった。どれもスネアの2拍4拍占有率を10〜12%から動かせなかった。
+   重複率は症状であって原因ではなかった。
+
+検証は実曲での `adt_check.py` で行う。**合成音の合格は根拠にしない**（2026-08-02 の教訓）。
 """
 import numpy as np
 
 from app import lanes as lane_defs
 
+# 打点と見なすしきい値。その帯域の「上位の強さ」に対する比で決める（曲の音量に依らない）。
+# 実曲3素材で 0.40〜0.70 が合格域。0.5 はその中央。
+HIT_THRESHOLD_FRAC = 0.5
+HIT_REFERENCE_PCT = 95
 
-def quantize_onsets_to_grid(onset_times, step_times):
-    """各オンセット時刻を最近傍のグリッドステップに吸着し、昇順ユニークなインデックスを返す。"""
-    steps = np.asarray(step_times, dtype=float)
-    idxs = set()
-    for t in onset_times:
-        idxs.add(int(np.argmin(np.abs(steps - t))))
-    return sorted(idxs)
+# 各レーンが使う帯域（Hz）。スネアは胴とノイズの2帯域を足す。
+KICK_BAND = (30, 120)
+SNARE_BANDS = ((150, 400), (2000, 8000))
+HIHAT_BAND = (6000, None)          # None＝ナイキストまで
 
 
-def remove_ghost(peak_indices, strengths, threshold):
-    """strength が threshold 未満の peak を除去する（装飾音・にじみ対策）。"""
-    return [p for p, s in zip(peak_indices, strengths) if s >= threshold]
+def band_flux(S, freqs, lo, hi):
+    """帯域エネルギーの半波整流微分（＝立ち上がりだけ）を返す。
+
+    「大きさ」ではなく「立ち上がり」を見るのが要点。低域は残響で大きさが常に高く、
+    大きさを見ると打点でない場所でも反応してしまう（旧方式の失敗原因）。
+    """
+    if hi is None:
+        sel = freqs >= lo
+    else:
+        sel = (freqs >= lo) & (freqs <= hi)
+    e = S[sel].sum(axis=0)
+    d = np.diff(e, prepend=e[0])
+    d[d < 0] = 0.0
+    return d
+
+
+def snare_flux(S, freqs):
+    """スネアの帯域フラックス（胴 150-400Hz ＋ ノイズ 2-8kHz）。"""
+    return sum(band_flux(S, freqs, lo, hi) for lo, hi in SNARE_BANDS)
+
+
+def _subdivide(beats, k):
+    """隣り合う拍の間を k 等分して拍を細かくする（テンポ揺れは保つ）。"""
+    out = []
+    for a, b in zip(beats[:-1], beats[1:]):
+        out.extend(a + (b - a) * np.arange(k) / k)
+    out.append(beats[-1])
+    return np.asarray(out, dtype=float)
+
+
+def reconcile_beats(beats, tempo, tol=0.15):
+    """ビート追従が倍・半分のテンポを掴んだときに、指定テンポの拍に直す。
+
+    ビート追従はテンポのオクターブ誤り（2倍・半分）を起こしやすい。曲のテンポは
+    呼び出し側が渡してくる値を正とし、拍の**間隔**はそちらに合わせる。一方で拍の
+    **位置**（位相とテンポ揺れ）は追従結果を活かす。
+    """
+    beats = np.asarray(beats, dtype=float)
+    if len(beats) < 2 or tempo <= 0:
+        return beats
+    want = 60.0 / tempo
+    got = float(np.median(np.diff(beats)))
+    if got <= 0:
+        return beats
+    ratio = got / want
+    k = int(round(ratio))
+    if k >= 2 and abs(ratio - k) <= tol * k:            # 粗すぎた → 分割する
+        return _subdivide(beats, k)
+    inv = int(round(1 / ratio))
+    if inv >= 2 and abs(1 / ratio - inv) <= tol * inv:  # 細かすぎた → 間引く
+        return beats[::inv]
+    return beats
+
+
+def anchor_beats(beats, phase):
+    """小節の位相をずらす。phase 拍ぶんだけ手前に拍を継ぎ足す。
+
+    phase=1 なら「最初に検出した拍は小節の2拍目だった」と解釈することになる。
+    """
+    beats = np.asarray(beats, dtype=float)
+    if phase <= 0 or len(beats) < 2:
+        return beats
+    interval = float(np.median(np.diff(beats)))
+    head = beats[0] - interval * np.arange(phase, 0, -1)
+    return np.concatenate([head, beats])
+
+
+def beat_step_times(beats, n_steps, steps_per_beat=4):
+    """拍列を線形補間して各ステップの時刻を作る（テンポ揺れに追従する）。
+
+    足りない分は最後の拍間隔で外挿する。
+    """
+    beats = np.asarray(beats, dtype=float)
+    want = np.arange(n_steps, dtype=float) / steps_per_beat
+    if len(beats) < 2:
+        interval = 0.5 if len(beats) == 0 else 0.5
+        origin = beats[0] if len(beats) else 0.0
+        return origin + want * interval
+    idx = np.arange(len(beats), dtype=float)
+    interval = float(np.median(np.diff(beats)))
+    out = np.interp(want, idx, beats)
+    tail = want > idx[-1]                      # 拍列より先は等間隔で伸ばす
+    out[tail] = beats[-1] + (want[tail] - idx[-1]) * interval
+    return out
+
+
+def step_peak_values(flux, step_times, sr, hop, half_win):
+    """各ステップ時刻の ±half_win 秒の窓での flux 最大値を返す。
+
+    窓は半ステップ幅にするので隙間なく・重なりなくタイル状に並ぶ。
+    """
+    frames = np.rint(np.asarray(step_times) * sr / hop).astype(int)
+    w = max(1, int(round(half_win * sr / hop)))
+    out = np.zeros(len(frames))
+    for i, f in enumerate(frames):
+        a, b = max(0, f - w), min(len(flux), f + w + 1)
+        if a < b:
+            out[i] = flux[a:b].max()
+    return out
+
+
+def hits_from_values(values, frac=HIT_THRESHOLD_FRAC, ref_pct=HIT_REFERENCE_PCT):
+    """上位 ref_pct パーセンタイルの frac 倍を超えたステップを打点にする。
+
+    曲ごとの音量差に左右されないよう、絶対値ではなくその帯域自身の分布で決める。
+    """
+    values = np.asarray(values, dtype=float)
+    ref = float(np.percentile(values, ref_pct)) if len(values) else 0.0
+    if ref <= 0:
+        return [0] * len(values)
+    return [1 if v > frac * ref else 0 for v in values]
+
+
+def choose_bar_phase(flux, beats, n_steps, sr, hop, steps_per_bar):
+    """小節頭にキックが最も集まる位相(0〜3)を選ぶ。
+
+    ビート追従は拍の位置は当てるが「どれが小節の1拍目か」は教えてくれないので、
+    低域の立ち上がりが小節頭に集まる向きを選ぶ（小節頭はたいてい低域が張る）。
+    """
+    steps_per_beat = max(1, steps_per_bar // 4)
+    best_phase, best_score = 0, -np.inf
+    for phase in range(4):
+        st = beat_step_times(anchor_beats(beats, phase), n_steps, steps_per_beat)
+        half = _half_step(st)
+        vals = step_peak_values(flux, st, sr, hop, half)
+        mean = vals.mean()
+        if mean <= 0:
+            continue
+        score = vals[0::steps_per_bar].mean() / mean
+        if score > best_score:
+            best_phase, best_score = phase, score
+    return best_phase
+
+
+def _half_step(step_times):
+    """半ステップ幅（秒）。窓の半径に使う。"""
+    if len(step_times) < 2:
+        return 0.05
+    return float(np.median(np.diff(step_times))) / 2
+
+
+def _fixed_step_times(tempo, n_steps, steps_per_bar):
+    """ビート追従が使えないときの保険＝t=0起点の等間隔グリッド。"""
+    step_sec = (4 * 60.0 / tempo) / steps_per_bar
+    return np.arange(n_steps, dtype=float) * step_sec
 
 
 def infer_hihat_subdivision(hh_onset_times, bars, bar_sec):
     """ハイハットのオンセット密度から、優勢な刻みを 16 / 8 / None で返す。"""
-    if not hh_onset_times or bars <= 0:
+    if not len(hh_onset_times) or bars <= 0:
         return None
     per_bar = len(hh_onset_times) / bars
     if per_bar >= 12:      # 16分寄り（16打点の75%以上）
@@ -52,64 +217,15 @@ def high_freq_fraction(S, freqs, floor_hz=5000.0):
     return float(S[freqs >= floor_hz].sum()) / total
 
 
-def resolve_hihat_subdivision(hh_onset_times, bars, bar_sec, hf_fraction, presence_floor=0.02):
+def resolve_hihat_subdivision(hh_onset_times, bars, bar_sec, hf_fraction,
+                              presence_floor=0.02):
     """HHの刻みを決める。密度で 16/8 を判定し、判定不能でも高域エネルギーが
     presence_floor 以上（ハットが鳴っている）なら 8分を既定として敷く。
-
-    オンセット検出だけではハットを拾いきれない（NMFでスネアの高域成分に吸われる）
-    ため、高域エネルギーの有無をフォールバックの手掛かりにする。
     """
     sub = infer_hihat_subdivision(hh_onset_times, bars, bar_sec)
     if sub is None and hf_fraction >= presence_floor:
         return 8
     return sub
-
-
-def _band(freqs, lo, hi, floor=0.01):
-    """[lo,hi]Hz を 1.0、外を floor にした非負の帯域ベクトル。"""
-    v = np.full(freqs.shape, floor, dtype=float)
-    v[(freqs >= lo) & (freqs <= hi)] = 1.0
-    return v
-
-
-def build_drum_templates(sr, n_fft):
-    """KK/SN/HH の固定スペクトルテンプレート W（列＝各成分）を作る。"""
-    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
-    kk = _band(freqs, 30, 120)                       # キック：低域
-    sn = _band(freqs, 150, 400) + 0.5 * _band(freqs, 2000, 8000)  # スネア：胴＋ノイズ
-    hh = _band(freqs, 6000, sr / 2)                  # ハイハット：高域
-    W = np.stack([kk, sn, hh], axis=1)
-    W /= (W.sum(axis=0, keepdims=True) + 1e-9)       # 列を正規化
-    return W
-
-
-def nmf_activations(V, W, iters=50):
-    """W を固定して活性 H のみを乗算更新で推定する（教師ありNMF）。"""
-    eps = 1e-9
-    H = np.full((W.shape[1], V.shape[1]), V.mean() + eps)
-    Wt = W.T
-    WtW = Wt @ W
-    for _ in range(iters):
-        H *= (Wt @ V) / (WtW @ H + eps)
-    return H
-
-
-def _onsets_from_activation(env, sr, hop, wait=2):
-    """1成分の活性エンベロープからオンセット時刻と（0〜1正規化した）強度を返す。
-
-    ピーク検出のみを行い、強度によるふるい分けは呼び出し側（remove_ghost）に任せる。
-    """
-    import librosa
-    if env.max() <= 0:
-        return [], []
-    norm = env / env.max()
-    peaks = librosa.util.peak_pick(
-        norm, pre_max=2, post_max=2, pre_avg=3, post_avg=3, delta=0.05, wait=wait
-    )
-    peaks = [int(p) for p in peaks]
-    times = [p * hop / sr for p in peaks]
-    strengths = [float(norm[p]) for p in peaks]
-    return times, strengths
 
 
 def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
@@ -119,30 +235,42 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
     n_fft, hop = 1024, 256
     y, sr = librosa.load(drum_wav_path, sr=None, mono=True)
     S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
-    W = build_drum_templates(sr, n_fft)
-    H = nmf_activations(S, W)
+    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
+
+    kk_flux = band_flux(S, freqs, *KICK_BAND)
+    sn_flux = snare_flux(S, freqs)
+    hh_flux = band_flux(S, freqs, *HIHAT_BAND)
 
     n = bars * steps_per_bar
     bar_sec = 4 * 60.0 / tempo
-    step_sec = bar_sec / steps_per_bar
-    step_times = [s * step_sec for s in range(n)]
+    steps_per_beat = max(1, steps_per_bar // 4)
 
-    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
+    # --- グリッドを実際の拍に合わせる（ここが旧方式との最大の違い） ---
+    _, beat_frames = librosa.beat.beat_track(
+        y=y, sr=sr, hop_length=hop, start_bpm=tempo, tightness=100)
+    beats = reconcile_beats(
+        librosa.frames_to_time(beat_frames, sr=sr, hop_length=hop), tempo)
+    if len(beats) >= 2:
+        phase = choose_bar_phase(kk_flux, beats, n, sr, hop, steps_per_bar)
+        step_times = beat_step_times(
+            anchor_beats(beats, phase), n, steps_per_beat)
+    else:
+        step_times = _fixed_step_times(tempo, n, steps_per_bar)   # 保険
+
+    half = _half_step(step_times)
     lanes = {lane: [0] * n for lane in lane_defs.keys()}
+    lanes["KK"] = hits_from_values(
+        step_peak_values(kk_flux, step_times, sr, hop, half))
+    lanes["SN"] = hits_from_values(
+        step_peak_values(sn_flux, step_times, sr, hop, half))
 
-    # KK=行0, SN=行1：オンセットを拾い、弱い打点(ゴースト)を除いて量子化して置く
-    for row, lane in ((0, "KK"), (1, "SN")):
-        times, strengths = _onsets_from_activation(H[row], sr, hop, wait=3)
-        kept = remove_ghost(list(range(len(times))), strengths, 0.4)
-        times = [times[i] for i in kept]
-        for idx in quantize_onsets_to_grid(times, step_times):
-            if idx < n:
-                lanes[lane][idx] = 1
-
-    # HH=行2：密度で刻みを判定。弱くても高域エネルギーがあれば8分を既定にする
-    hh_times, _ = _onsets_from_activation(H[2], sr, hop)
+    # HHは打点ごとに拾わず、密度から刻みを決めて規則パターンを敷く（下書きとして扱いやすい）
+    hh_steps = step_peak_values(hh_flux, step_times, sr, hop, half)
+    hh_hits = hits_from_values(hh_steps)
+    hh_times = [t for t, v in zip(step_times, hh_hits) if v]
     hf = high_freq_fraction(S, freqs)
     sub = resolve_hihat_subdivision(hh_times, bars, bar_sec, hf)
     lanes["HH"] = fill_regular_hihat(sub, bars, steps_per_bar)
 
-    return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar, "lanes": lanes}
+    return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar,
+            "lanes": lanes}
