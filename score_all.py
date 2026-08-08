@@ -70,22 +70,77 @@ def find_source_audio(root):
     return None
 
 
+CHORDS_CACHE = "chords.json"
+
+
+def load_cached_chords(root, tempo, tol=0.5):
+    """フォルダに保存済みのコード進行を読む。無い/テンポが違うなら None。
+
+    **なぜ保存するか**：以前は元音源を「出力フォルダ名と同じ名前のmp3」という
+    慣習で探していた。そのため**フォルダを改名するとコードが消えた**。
+    検出結果をフォルダ内に持たせれば、改名しても元音源を消しても残る（2026-08-08）。
+    ついでに、検出は重い解析なので2回目以降が一瞬になる。
+    """
+    path = Path(root) / CHORDS_CACHE
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None                       # 壊れていたら無視して取り直す
+    # コードは小節単位なのでテンポが変わると位置がずれる。違えば使わない
+    if abs(float(data.get("tempo", 0)) - float(tempo)) > tol:
+        return None
+    chords = data.get("chords")
+    return chords if isinstance(chords, list) and chords else None
+
+
+def save_chords(root, tempo, chords, source=None):
+    """検出したコード進行をフォルダに保存する（改名・音源削除に耐えるため）。"""
+    if not chords:
+        return None
+    path = Path(root) / CHORDS_CACHE
+    path.write_text(json.dumps(
+        {"tempo": tempo, "source": str(source) if source else None,
+         "chords": chords}, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
 def resolve_chords(root, tempo, audio=None, no_chords=False):
     """その曲のコード進行（小節順のリスト）を返す。載せないときは None。
 
     バンド譜とタブ譜の両方が使うので、ここを単一の入口にしている
     （別々に検出すると同じ解析を2回走らせることになる）。
+
+    探す順番：
+      ① --audio で明示された音源（指定されたら必ずそれを使い、結果を保存する）
+      ② フォルダに保存済みの chords.json（**改名しても効く**・一瞬）
+      ③ フォルダ名から推測した元音源（従来の慣習。古い出力フォルダ向け）
+      ④ どれも無ければ、黙らず理由を伝えて None
     """
     if no_chords:
         return None
-    src = audio or find_source_audio(root)
-    if not src:
-        # 黙ってコード無しにしない。何が起きたかを必ず伝える
-        print("      ※ 元音源が見つからずコード記号を載せていません。"
-              f"（{Path(root).name}.mp3 等を audio/ に置くか --audio で指定）")
-        return None
     from bandcopy import detect_chords
-    return detect_chords(Path(src).expanduser().resolve(), tempo)
+
+    if audio:                                        # ①
+        chords = detect_chords(Path(audio).expanduser().resolve(), tempo)
+        save_chords(root, tempo, chords, source=audio)
+        return chords
+
+    cached = load_cached_chords(root, tempo)         # ②
+    if cached:
+        return cached
+
+    src = find_source_audio(root)                    # ③
+    if src:
+        chords = detect_chords(Path(src).expanduser().resolve(), tempo)
+        save_chords(root, tempo, chords, source=src)
+        return chords
+
+    # ④ 黙ってコード無しにしない。何が起きたかを必ず伝える
+    print("      ※ 元音源が見つからずコード記号を載せていません。"
+          f"（{Path(root).name}.mp3 等を audio/ に置くか --audio で指定）")
+    return None
 
 
 def build_full_score_musicxml(root, level, tempo=None, audio=None,

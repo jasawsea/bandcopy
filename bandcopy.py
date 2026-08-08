@@ -338,6 +338,11 @@ def run_pipeline(audio_path, out_root, level=3, six=False, parts=None,
     chords = None
     if not no_chords and chord_key in parts:
         chords = detect_chords(audio_path, tempo)
+        # フォルダに保存しておく。以後 score_all/tab.py は元音源が無くても
+        # コードを載せられる（出力フォルダを改名しても消えない）
+        from score_all import save_chords
+        out_root.mkdir(parents=True, exist_ok=True)
+        save_chords(out_root, tempo, chords, source=audio_path)
 
     # --- パート分離 ---
     stems = separate_stems(audio_path, work_dir, six)

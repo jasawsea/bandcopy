@@ -158,3 +158,76 @@ def test_full_score_warns_when_source_audio_missing(tmp_path, monkeypatch, capsy
     root = _make_song(tmp_path, with_audio=False)
     score_all.build_full_score_musicxml(root, level=3, tempo=120.0)
     assert "コード記号を載せていません" in capsys.readouterr().out
+
+
+def test_cached_chords_survive_folder_rename(tmp_path, monkeypatch):
+    """出力フォルダを改名してもコードが消えないこと（今回の本題）。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+
+    calls = []
+
+    def fake_detect(path, tempo):
+        calls.append(str(path))
+        return ["C", "G", "Am", "F"]
+
+    monkeypatch.setattr("bandcopy.detect_chords", fake_detect)
+
+    # 1回目：音源から検出して保存される
+    first = score_all.resolve_chords(root, tempo=120.0)
+    assert first == ["C", "G", "Am", "F"]
+    assert (root / "chords.json").exists()
+    assert len(calls) == 1
+
+    # フォルダを改名し、元音源も消す（名前の慣習が完全に効かない状態）
+    renamed = tmp_path / "output" / "曲名を変えた"
+    root.rename(renamed)
+    (tmp_path / "audio" / "mysong.mp3").unlink()
+
+    second = score_all.resolve_chords(renamed, tempo=120.0)
+    assert second == ["C", "G", "Am", "F"]        # 消えない
+    assert len(calls) == 1                         # 再解析もしない
+
+
+def test_cached_chords_ignored_when_tempo_differs(tmp_path, monkeypatch):
+    """テンポが違えば小節位置がずれるので、保存済みを使わず取り直す。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+    score_all.save_chords(root, 120.0, ["C", "G"])
+
+    assert score_all.load_cached_chords(root, 120.0) == ["C", "G"]
+    assert score_all.load_cached_chords(root, 90.0) is None
+
+
+def test_cached_chords_tolerates_small_tempo_jitter(tmp_path, monkeypatch):
+    """検出テンポの微差（129.19 と 129.2 など）では取り直さない。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+    score_all.save_chords(root, 129.19921875, ["C"])
+    assert score_all.load_cached_chords(root, 129.2) == ["C"]
+
+
+def test_broken_cache_is_ignored_not_fatal(tmp_path, monkeypatch):
+    """壊れたキャッシュで落ちない（無視して取り直せる状態にする）。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+    (root / "chords.json").write_text("{壊れている", encoding="utf-8")
+    assert score_all.load_cached_chords(root, 120.0) is None
+
+
+def test_explicit_audio_wins_over_cache(tmp_path, monkeypatch):
+    """--audio を指定したときは、保存済みより指定を優先して取り直す。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+    score_all.save_chords(root, 120.0, ["古い", "キャッシュ"])
+    monkeypatch.setattr("bandcopy.detect_chords", lambda p, t: ["新しい"])
+
+    got = score_all.resolve_chords(
+        root, tempo=120.0, audio=str(tmp_path / "audio" / "mysong.mp3"))
+    assert got == ["新しい"]
+    assert score_all.load_cached_chords(root, 120.0) == ["新しい"]   # 更新もされる
