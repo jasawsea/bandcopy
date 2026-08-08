@@ -8,6 +8,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from app.fetch import fetch_audio_from_url        # noqa: F401  （後方互換の再公開）
+
 
 def _zip_dir(src_dir, dest_zip):
     """フォルダ直下のファイルを zip にまとめる。フォルダが無ければ None。"""
@@ -24,6 +26,43 @@ def _zip_dir(src_dir, dest_zip):
     return str(dest_zip)
 
 
+def resolve_input(audio_path, url, outdir="audio", start=None, end=None,
+                  fetcher=None):
+    """アップロードとURLのどちらを使うかを決め、(音源パス, 通知文) を返す。
+
+    URLが入っていればURLを優先する（両方入っている場合の挙動を決め打ちにして
+    「どっちが使われたか分からない」を避ける）。使えるものが無ければ (None, 案内文)。
+
+    start / end は URL取り込みのときだけ効く（アップロード済みファイルは切らない）。
+    """
+    fetcher = fetcher or fetch_audio_from_url
+    url = (url or "").strip()
+    if url:
+        path, title = fetcher(url, outdir=outdir, start=start, end=end)
+        note = f"「{title}」を取り込みました。"
+        if _has_range(start, end):
+            note += f"（{_range_label(start, end)} を切り出し）"
+        if audio_path:
+            note += "（URLを優先し、アップロードした音源は使っていません）"
+        return path, note
+    if audio_path:
+        note = ""
+        if _has_range(start, end):
+            note = ("※ 切り出しは動画URLのときだけ効きます。"
+                    "アップロードした音源は全体を処理します。")
+        return audio_path, note
+    return None, "音源をアップロードするか、動画URLを貼ってください。"
+
+
+def _has_range(start, end):
+    return bool((start or "").strip() if isinstance(start, str) else start) or \
+        bool((end or "").strip() if isinstance(end, str) else end)
+
+
+def _range_label(start, end):
+    return f"{(start or '先頭')} 〜 {(end or '最後')}"
+
+
 def process(audio_path, level=3, six=False, workdir=None):
     """1曲を処理し、ダウンロード用のファイル群を dict で返す。
 
@@ -32,7 +71,7 @@ def process(audio_path, level=3, six=False, workdir=None):
     """
     import cairosvg
     from bandcopy import run_pipeline
-    from score_all import build_full_score_musicxml
+    from score_all import build_full_score_musicxml, resolve_chords
     from app.render import musicxml_to_pdf, musicxml_to_svg
     from app.tab import midi_to_tab_musicxml
     from tab import resolve_tab_targets
@@ -50,8 +89,9 @@ def process(audio_path, level=3, six=False, workdir=None):
     web_dir.mkdir(parents=True, exist_ok=True)
     out = dict(empty)
 
-    # バンド譜（PDF＋プレビュー画像）
-    xml, _six, _bars, _tempo, _n = build_full_score_musicxml(
+    # バンド譜（PDF＋プレビュー画像）。コードはここで1回だけ検出され、
+    # 下のタブ譜でも使い回す（同じ解析を2回走らせない）
+    xml, _six, _bars, _tempo, _n, chords = build_full_score_musicxml(
         out_root, level, audio=audio_path)
     if xml:
         band_pdf = web_dir / f"バンド譜_Lv{level}.pdf"
@@ -64,7 +104,7 @@ def process(audio_path, level=3, six=False, workdir=None):
 
     # タブ譜（ギター/ベース）
     for midi_path, instrument, label in resolve_tab_targets(out_root / "midi", level):
-        txml = midi_to_tab_musicxml(midi_path, instrument)
+        txml = midi_to_tab_musicxml(midi_path, instrument, chords=chords)
         tab_pdf = web_dir / f"{label}_タブ_Lv{level}.pdf"
         tab_pdf.write_bytes(musicxml_to_pdf(txml))
         out["tab_pdfs"].append(str(tab_pdf))
@@ -85,8 +125,9 @@ def build_intro_markdown(editor_link: bool = False) -> str:
     """
     text = (
         "# bandcopy — バンドコピー支援\n"
-        "自分の手持ち音源をアップロードすると、**演奏しやすい難易度に落とした"
-        "楽譜・タブ譜**と**パート別の練習音源**を作ります。個人練習用。"
+        "**動画URLを貼る**か、**手持ちの音源をアップロード**すると、"
+        "**演奏しやすい難易度に落とした楽譜・タブ譜**と"
+        "**パート別の練習音源**を作ります。個人練習用。"
     )
     if editor_link:
         text += "\n\nドラムだけをグリッドで編集したい場合は[ドラム編集を開く](editor/)。"
@@ -103,8 +144,17 @@ def build_ui(editor_link: bool = False):
 
     with gr.Blocks(title="bandcopy") as demo:
         gr.Markdown(build_intro_markdown(editor_link))
+        url = gr.Textbox(
+            label="動画URL（YouTube等）",
+            placeholder="https://www.youtube.com/watch?v=... を貼り付け",
+            info="URLを貼るとここから音源を取り込みます。手持ちのファイルを使うときは空のままで。")
         with gr.Row():
-            audio = gr.Audio(type="filepath", label="音源をアップロード（MP3 / WAV / M4A）")
+            start = gr.Textbox(label="開始（任意）", placeholder="例 1:20",
+                               info="空なら曲の先頭から")
+            end = gr.Textbox(label="終了（任意）", placeholder="例 2:45",
+                             info="空なら曲の最後まで。※URLのときだけ効きます")
+        with gr.Row():
+            audio = gr.Audio(type="filepath", label="または音源をアップロード（MP3 / WAV / M4A）")
             with gr.Column():
                 level = gr.Slider(1, 5, value=3, step=1,
                                   label="難易度（1=最も簡単 / 5=原曲どおり）")
@@ -117,14 +167,19 @@ def build_ui(editor_link: bool = False):
         tab_files = gr.File(label="タブ譜（ギター/ベースのPDF）", file_count="multiple")
         stems_file = gr.File(label="パート別の練習音源（zip）")
 
-        def _run(audio_path, lv, s):
-            if not audio_path:
-                return "音源をアップロードしてください。", None, None, None, None
-            r = process(audio_path, level=int(lv), six=bool(s))
-            return (r["message"], r["preview"], r["band_pdf"],
+        def _run(audio_path, url_text, st, en, lv, s):
+            try:
+                path, note = resolve_input(audio_path, url_text, start=st, end=en)
+            except Exception as e:                       # 取り込み失敗は日本語で返す
+                return f"取り込みに失敗しました: {e}", None, None, None, None
+            if not path:
+                return note, None, None, None, None
+            r = process(path, level=int(lv), six=bool(s))
+            msg = f"{note}\n\n{r['message']}" if note else r["message"]
+            return (msg, r["preview"], r["band_pdf"],
                     r["tab_pdfs"], r["stems_zip"])
 
-        run.click(_run, [audio, level, six],
+        run.click(_run, [audio, url, start, end, level, six],
                   [message, preview, band_file, tab_files, stems_file])
 
     return demo

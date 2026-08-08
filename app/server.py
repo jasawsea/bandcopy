@@ -15,6 +15,7 @@ from app.render import musicxml_to_svg
 from app.drum_simplify import thin_kicks, thin_hihat
 from app.drum_transcribe import transcribe_drums
 from app.analyze import transcribe_drum_from_audio, build_template_from_audio, separate_drum_stem
+from app.fetch import fetch_audio_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +69,30 @@ def create_app(state: dict) -> Flask:
 
     @app.post("/load")
     def load_audio():
-        f = request.files.get("audio")
-        if f is None:
-            return (jsonify({"error": "音源ファイルがありません"}), 400)
         upload_dir = Path("output") / "_upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
-        # ファイル名を安全化（パストラバーサル対策＋日本語名の拡張子・一意性を保つ）
-        safe_filename = _sanitize_upload_filename(f.filename)
-        audio_path = upload_dir / safe_filename
-        f.save(str(audio_path))
+        url = (request.form.get("url") or "").strip()
+        f = request.files.get("audio")
+
+        if url:
+            # URLが入っていればURLを優先する（両方来たときの挙動を決め打ちにする）
+            try:
+                fetched, _title = fetch_audio_from_url(
+                    url, outdir=str(upload_dir),
+                    start=request.form.get("start"), end=request.form.get("end"))
+            except ValueError as e:
+                # 時刻の書式ミス・範囲の矛盾は、何が悪いか本人に返す
+                return (jsonify({"error": str(e)}), 400)
+            except Exception:
+                logger.exception("URLからの取り込みに失敗しました: %s", url)
+                return (jsonify({"error": "URLから音源を取り込めませんでした"}), 400)
+            audio_path = Path(fetched)
+        elif f is not None:
+            # ファイル名を安全化（パストラバーサル対策＋日本語名の拡張子・一意性を保つ）
+            audio_path = upload_dir / _sanitize_upload_filename(f.filename)
+            f.save(str(audio_path))
+        else:
+            return (jsonify({"error": "音源ファイルまたはURLがありません"}), 400)
         try:
             grid = build_template_from_audio(str(audio_path))
             stem = separate_drum_stem(str(audio_path), str(Path("output") / "_editor"))

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.tab import midi_to_tab_musicxml
 from app.render import musicxml_to_svg, musicxml_to_pdf
+from score_all import resolve_chords
 
 # ラベル → 楽器。ギターは6分離「ギター」を優先し、無ければ4分離の混在ラベル。
 _BASS_LABEL = "ベース"
@@ -38,6 +39,10 @@ def main():
     ap.add_argument("outdir", help="曲の出力フォルダ（例: output/Yvv4RVQzIFk）")
     ap.add_argument("--level", type=int, default=3)
     ap.add_argument("--pdf", action="store_true", help="PDFも書き出す")
+    ap.add_argument("--tempo", type=float, default=None,
+                    help="コード検出に使うテンポ。省略時はMIDIから読む")
+    ap.add_argument("--no-chords", action="store_true",
+                    help="コード記号を載せない")
     args = ap.parse_args()
 
     root = Path(args.outdir).resolve()
@@ -51,8 +56,16 @@ def main():
     tab_dir.mkdir(exist_ok=True)
     render_dir.mkdir(exist_ok=True)
 
+    # コードは全ターゲット共通なので1回だけ検出する
+    tempo = args.tempo
+    if tempo is None:
+        import pretty_midi
+        _, tempi = pretty_midi.PrettyMIDI(targets[0][0]).get_tempo_changes()
+        tempo = float(tempi[0]) if len(tempi) else 120.0
+    chords = resolve_chords(root, tempo, no_chords=args.no_chords)
+
     for midi_path, instrument, label in targets:
-        xml = midi_to_tab_musicxml(midi_path, instrument)
+        xml = midi_to_tab_musicxml(midi_path, instrument, chords=chords)
         xml_path = tab_dir / f"{label}_tab_Lv{args.level}.musicxml"
         xml_path.write_text(xml, encoding="utf-8")
         svg_path = render_dir / f"{label}_tab.svg"

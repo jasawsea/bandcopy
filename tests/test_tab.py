@@ -133,3 +133,57 @@ def test_tab_targets_six_stem_prefers_clean_guitar(tmp_path):
 def test_tab_targets_empty_when_none(tmp_path):
     from tab import resolve_tab_targets
     assert resolve_tab_targets(tmp_path, level=3) == []
+
+
+def test_harmony_xml_basic_kinds():
+    """コード語彙6種が MusicXML の <kind> に正しく対応すること。"""
+    from app.tab import harmony_xml
+    cases = {
+        "C": "major", "Am": "minor", "Csus4": "suspended-fourth",
+        "G7": "dominant", "Fmaj7": "major-seventh", "Bm7": "minor-seventh",
+    }
+    for fig, kind in cases.items():
+        assert f"<kind>{kind}</kind>" in harmony_xml(fig)
+
+
+def test_harmony_xml_sharp_root_carries_alter():
+    from app.tab import harmony_xml
+    x = harmony_xml("F#m7")
+    assert "<root-step>F</root-step>" in x
+    assert "<root-alter>1</root-alter>" in x
+    assert "<kind>minor-seventh</kind>" in x
+
+
+def test_harmony_xml_natural_root_has_no_alter():
+    from app.tab import harmony_xml
+    assert "root-alter" not in harmony_xml("C")
+
+
+def test_harmony_xml_skips_unparseable():
+    """解釈できない表記は載せない（怪しいものを書くより安全）。"""
+    from app.tab import harmony_xml
+    for bad in (None, "", "N.C.", "Cadd9", "Xm", "C13#11"):
+        assert harmony_xml(bad) is None
+
+
+def test_tab_without_chords_has_no_harmony(tmp_path):
+    from app.tab import midi_to_tab_musicxml
+    mid = _mono_midi(tmp_path, [40, 45, 50])
+    assert "<harmony>" not in midi_to_tab_musicxml(mid, "bass")
+
+
+def test_tab_with_chords_puts_harmony_before_notes(tmp_path):
+    from app.tab import midi_to_tab_musicxml
+    mid = _mono_midi(tmp_path, [40, 45, 50])
+    xml = midi_to_tab_musicxml(mid, "bass", chords=["Em"])
+    assert "<harmony>" in xml
+    # <harmony> は最初の <note> より前（後続の音に掛かる記法のため）
+    assert xml.index("<harmony>") < xml.index("<note>")
+
+
+def test_tab_chords_shorter_than_measures_is_safe(tmp_path):
+    """コード数が小節数より少なくても落ちないこと。"""
+    from app.tab import midi_to_tab_musicxml
+    mid = _mono_midi(tmp_path, [40] * 20)
+    xml = midi_to_tab_musicxml(mid, "bass", chords=["Em"])
+    assert xml.count("<harmony>") == 1

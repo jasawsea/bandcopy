@@ -8,10 +8,25 @@
 <body>
   <h1>ドラムエディタ</h1>
   {% if base != '/' %}<p><a href="../">みんな用に戻る</a></p>{% endif %}
-  <p>音源をアップロードするとドラムを分離してグリッド編集を開始します。</p>
+  <p>動画URLを貼るか、音源をアップロードすると、ドラムを分離してグリッド編集を開始します。</p>
   <form id="load-form">
-    <input type="file" id="audio-file" accept="audio/*" required>
-    <button type="submit">音源をアップロードして開始</button>
+    <p>
+      <label for="audio-url">動画URL（YouTube等）</label><br>
+      <input type="url" id="audio-url" size="52"
+             placeholder="https://www.youtube.com/watch?v=... を貼り付け">
+    </p>
+    <p>
+      <label for="audio-start">切り出し（任意・URLのときだけ効きます）</label><br>
+      <input type="text" id="audio-start" size="8" placeholder="開始 1:20">
+      〜
+      <input type="text" id="audio-end" size="8" placeholder="終了 2:45">
+      <br><small>空なら曲の全体を使います。</small>
+    </p>
+    <p>
+      <label for="audio-file">または音源ファイル</label><br>
+      <input type="file" id="audio-file" accept="audio/*">
+    </p>
+    <button type="submit">開始</button>
   </form>
   <p id="load-msg"></p>
   <script>
@@ -20,10 +35,25 @@
       const msg = document.getElementById("load-msg");
       const submitBtn = e.target.querySelector('button[type="submit"]');
       const file = document.getElementById("audio-file").files[0];
-      if (!file) return;
+      const url = document.getElementById("audio-url").value.trim();
+      if (!url && !file) {
+        msg.textContent = "! 動画URLを貼るか、音源ファイルを選んでください";
+        return;
+      }
       const fd = new FormData();
-      fd.append("audio", file);
-      msg.textContent = "解析中…（ドラム分離は数分かかることがあります）";
+      // URLが入っていればURL優先（サーバ側の /load と同じ決め打ち）
+      if (url) {
+        fd.append("url", url);
+        const st = document.getElementById("audio-start").value.trim();
+        const en = document.getElementById("audio-end").value.trim();
+        if (st) fd.append("start", st);
+        if (en) fd.append("end", en);
+      } else {
+        fd.append("audio", file);
+      }
+      msg.textContent = url
+        ? "取り込み中…（ダウンロード＋ドラム分離で数分かかることがあります）"
+        : "解析中…（ドラム分離は数分かかることがあります）";
       submitBtn.disabled = true;
       try {
         const res = await fetch("load", { method: "POST", body: fd });

@@ -30,6 +30,10 @@ import shutil
 import sys
 from pathlib import Path
 
+# 時刻のパースは Web UI と共通（app/fetch.py が単一ソース）。
+# 二重に持つと片方だけ直す事故が起きるため、ここでは再公開するだけにする。
+from app.fetch import parse_timestamp
+
 
 def check_requirements():
     """yt-dlp と ffmpeg が使えるか確認する"""
@@ -46,27 +50,6 @@ def check_requirements():
         print("    Windows : winget install ffmpeg")
         print("    Ubuntu  : sudo apt install ffmpeg\n")
         sys.exit(1)
-
-
-def parse_timestamp(value: str) -> float:
-    """
-    '1:20' や '01:02:03' や '95' を秒数に変換する。
-    """
-    if value is None:
-        return None
-    parts = str(value).strip().split(":")
-    try:
-        parts = [float(p) for p in parts]
-    except ValueError:
-        raise ValueError(f"時間の指定が不正です: {value}（例: 1:20 / 01:02:03 / 95）")
-
-    if len(parts) == 1:
-        return parts[0]
-    if len(parts) == 2:
-        return parts[0] * 60 + parts[1]
-    if len(parts) == 3:
-        return parts[0] * 3600 + parts[1] * 60 + parts[2]
-    raise ValueError(f"時間の指定が不正です: {value}")
 
 
 def sanitize(name: str) -> str:

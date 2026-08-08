@@ -49,18 +49,62 @@ def resolve_parts(midi_dir, level: int):
     return _collect(six), six
 
 
+AUDIO_EXTS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
+
+
+def find_source_audio(root):
+    """出力フォルダ名から元音源を探す（`audio/<フォルダ名>.<拡張子>`）。
+
+    **なぜ自動で探すか**：コード検出は `--audio` を渡したときだけ動く作りだった。
+    渡し忘れると *警告も出ずに* コード記号ゼロのバンド譜が出る。バンド譜はコードが
+    要のパートなので、忘れられる作りのままにしない（2026-08-08）。
+    見つからなければ None（呼び出し側が明示的に知らせる）。
+    """
+    root = Path(root)
+    candidates = [Path.cwd() / "audio", root.parent.parent / "audio", root]
+    for base in candidates:
+        for ext in AUDIO_EXTS:
+            p = base / f"{root.name}{ext}"
+            if p.exists():
+                return str(p)
+    return None
+
+
+def resolve_chords(root, tempo, audio=None, no_chords=False):
+    """その曲のコード進行（小節順のリスト）を返す。載せないときは None。
+
+    バンド譜とタブ譜の両方が使うので、ここを単一の入口にしている
+    （別々に検出すると同じ解析を2回走らせることになる）。
+    """
+    if no_chords:
+        return None
+    src = audio or find_source_audio(root)
+    if not src:
+        # 黙ってコード無しにしない。何が起きたかを必ず伝える
+        print("      ※ 元音源が見つからずコード記号を載せていません。"
+              f"（{Path(root).name}.mp3 等を audio/ に置くか --audio で指定）")
+        return None
+    from bandcopy import detect_chords
+    return detect_chords(Path(src).expanduser().resolve(), tempo)
+
+
 def build_full_score_musicxml(root, level, tempo=None, audio=None,
-                              drum_grid_override=None):
+                              drum_grid_override=None, no_chords=False,
+                              chords=None):
     """出力フォルダから全パート統合スコアの MusicXML を組み立てて返す。
 
     CLI(main) と Web アプリ(app/webapp.py) の共通処理。戻り値は
-    (xml, six, bars, tempo, part_count)。MIDIが無ければ xml=None。
+    (xml, six, bars, tempo, part_count, chords)。MIDIが無ければ xml=None。
+
+    audio 未指定でも元音源を自動で探してコードを載せる（no_chords=True で抑止）。
+    **chords も返す**のは、タブ譜が同じコードを使い回せるようにするため
+    （別々に検出すると重い解析が2回走る）。
     """
     root = Path(root)
     midi_dir = root / "midi"
     midi_paths, six = resolve_parts(midi_dir, level)
     if not midi_paths:
-        return None, six, 0, tempo, 0
+        return None, six, 0, tempo, 0, None
 
     if tempo is None:
         any_mid = next(iter(midi_paths.values()))
@@ -73,13 +117,11 @@ def build_full_score_musicxml(root, level, tempo=None, audio=None,
     bars = count_bars(end, tempo)
     drum_grid = resolve_drum_grid(root, tempo, bars, override=drum_grid_override)
 
-    chords = None
-    if audio:
-        from bandcopy import detect_chords
-        chords = detect_chords(Path(audio).expanduser().resolve(), tempo)
+    if chords is None:                      # 呼び出し側が検出済みなら使い回す
+        chords = resolve_chords(root, tempo, audio=audio, no_chords=no_chords)
 
     sc = assemble_full_score(midi_paths, drum_grid, tempo, chords=chords, six=six)
-    return score_to_musicxml(sc), six, bars, tempo, len(sc.parts)
+    return score_to_musicxml(sc), six, bars, tempo, len(sc.parts), chords
 
 
 def main():
@@ -88,7 +130,9 @@ def main():
     ap.add_argument("--level", type=int, default=3)
     ap.add_argument("--tempo", type=float, default=None)
     ap.add_argument("--audio", default=None,
-                    help="原曲の音源。指定するとコードを検出しボーカル段に載せる")
+                    help="原曲の音源。省略時は audio/<出力フォルダ名>.mp3 等を自動で探す")
+    ap.add_argument("--no-chords", action="store_true",
+                    help="コード検出を行わない（速く出したいとき）")
     ap.add_argument("--pdf", action="store_true",
                     help="印刷・共有用にPDFも書き出す")
     ap.add_argument("--drum-grid", default=None,
@@ -97,9 +141,9 @@ def main():
     args = ap.parse_args()
 
     root = Path(args.outdir).resolve()
-    xml, six, bars, tempo, n_parts = build_full_score_musicxml(
+    xml, six, bars, tempo, n_parts, _chords = build_full_score_musicxml(
         root, args.level, tempo=args.tempo, audio=args.audio,
-        drum_grid_override=args.drum_grid)
+        drum_grid_override=args.drum_grid, no_chords=args.no_chords)
     if xml is None:
         print(f"簡略化MIDIが見つかりません: {root / 'midi'}")
         return

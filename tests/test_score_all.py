@@ -63,3 +63,98 @@ def test_resolve_drum_grid_explicit_override(tmp_path):
     p.write_text(json.dumps(edited), encoding="utf-8")
     grid = resolve_drum_grid(tmp_path, tempo=120.0, bars=1, override=str(p))
     assert grid["lanes"]["SN"] == [1] + [0] * 15
+
+
+def test_find_source_audio_from_output_dir_name(tmp_path, monkeypatch):
+    """出力フォルダ名から audio/<名前>.mp3 を自動で探せること。"""
+    from score_all import find_source_audio
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio" / "mysong.mp3").write_bytes(b"ID3")
+    (tmp_path / "output" / "mysong").mkdir(parents=True)
+
+    assert find_source_audio(tmp_path / "output" / "mysong") == \
+        str(tmp_path / "audio" / "mysong.mp3")
+
+
+def test_find_source_audio_accepts_other_extensions(tmp_path, monkeypatch):
+    from score_all import find_source_audio
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio" / "mysong.wav").write_bytes(b"RIFF")
+    (tmp_path / "output" / "mysong").mkdir(parents=True)
+    assert find_source_audio(tmp_path / "output" / "mysong").endswith("mysong.wav")
+
+
+def test_find_source_audio_returns_none_when_absent(tmp_path, monkeypatch):
+    from score_all import find_source_audio
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "mysong").mkdir(parents=True)
+    assert find_source_audio(tmp_path / "output" / "mysong") is None
+
+
+def _make_song(tmp_path, name="mysong", with_audio=True):
+    root = tmp_path / "output" / name
+    (root / "midi").mkdir(parents=True)
+    for label in ("ボーカル", "ギター・キーボード等", "ベース"):
+        _midi(root / "midi" / f"{label}_Lv3.mid")
+    if with_audio:
+        (tmp_path / "audio").mkdir(exist_ok=True)
+        (tmp_path / "audio" / f"{name}.mp3").write_bytes(b"ID3")
+    return root
+
+
+def test_full_score_detects_chords_without_audio_flag(tmp_path, monkeypatch):
+    """--audio を渡し忘れてもコードが載ること（忘れると黙って消えるのを防ぐ）。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+    seen = {}
+
+    def fake_detect(path, tempo):
+        seen["path"] = str(path)
+        return ["C", "G"]
+
+    monkeypatch.setattr("bandcopy.detect_chords", fake_detect)
+    captured = {}
+    real = score_all.assemble_full_score
+
+    def spy(midi_paths, grid, tempo, chords=None, six=False):
+        captured["chords"] = chords
+        return real(midi_paths, grid, tempo, chords=chords, six=six)
+
+    monkeypatch.setattr("score_all.assemble_full_score", spy)
+    score_all.build_full_score_musicxml(root, level=3, tempo=120.0)
+
+    assert captured["chords"] == ["C", "G"]
+    assert seen["path"].endswith("mysong.mp3")
+
+
+def test_full_score_no_chords_flag_skips_detection(tmp_path, monkeypatch):
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path)
+
+    def boom(path, tempo):
+        raise AssertionError("no_chords のときは呼んではいけない")
+
+    monkeypatch.setattr("bandcopy.detect_chords", boom)
+    captured = {}
+    real = score_all.assemble_full_score
+
+    def spy(midi_paths, grid, tempo, chords=None, six=False):
+        captured["chords"] = chords
+        return real(midi_paths, grid, tempo, chords=chords, six=six)
+
+    monkeypatch.setattr("score_all.assemble_full_score", spy)
+    score_all.build_full_score_musicxml(root, level=3, tempo=120.0, no_chords=True)
+    assert captured["chords"] is None
+
+
+def test_full_score_warns_when_source_audio_missing(tmp_path, monkeypatch, capsys):
+    """音源が見つからないときは黙らず理由を出すこと。"""
+    import score_all
+    monkeypatch.chdir(tmp_path)
+    root = _make_song(tmp_path, with_audio=False)
+    score_all.build_full_score_musicxml(root, level=3, tempo=120.0)
+    assert "コード記号を載せていません" in capsys.readouterr().out
