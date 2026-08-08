@@ -7,7 +7,65 @@ from pathlib import Path
 
 import pytest
 
-from app.fetch import build_fetch_options, fetch_audio_from_url
+from app.fetch import (build_fetch_options, fetch_audio_from_url,
+                       parse_timestamp, validate_range)
+
+
+def test_parse_timestamp_formats():
+    assert parse_timestamp("95") == 95
+    assert parse_timestamp("1:20") == 80
+    assert parse_timestamp("01:02:03") == 3723
+    assert parse_timestamp(" 1:20 ") == 80          # 前後の空白は許す
+
+
+def test_parse_timestamp_blank_is_none():
+    """欄を空のまま押されるのが普通なので、空は「指定なし」として扱う。"""
+    for blank in (None, "", "   "):
+        assert parse_timestamp(blank) is None
+
+
+def test_parse_timestamp_rejects_garbage():
+    with pytest.raises(ValueError):
+        parse_timestamp("あとで")
+
+
+def test_validate_range_rejects_end_before_start():
+    with pytest.raises(ValueError):
+        validate_range(120, 60)
+    with pytest.raises(ValueError):
+        validate_range(60, 60)                       # 長さ0も弾く
+
+
+def test_validate_range_rejects_negative():
+    with pytest.raises(ValueError):
+        validate_range(-1, None)
+
+
+def test_validate_range_allows_one_sided():
+    assert validate_range(60, None) == (60, None)
+    assert validate_range(None, 60) == (None, 60)
+
+
+def test_fetch_options_without_range_have_no_trim(tmp_path):
+    opts = build_fetch_options(tmp_path)
+    assert "download_ranges" not in opts
+
+
+def test_fetch_options_with_range_trim(tmp_path):
+    opts = build_fetch_options(tmp_path, start=80, end=165)
+    rng = opts["download_ranges"]({"duration": 300}, None)[0]
+    assert rng == {"start_time": 80, "end_time": 165}
+    assert opts["force_keyframes_at_cuts"] is True
+
+
+def test_fetch_options_end_only_runs_to_end_of_video(tmp_path):
+    opts = build_fetch_options(tmp_path, start=None, end=90)
+    assert opts["download_ranges"]({"duration": 300}, None)[0]["start_time"] == 0
+
+
+def test_fetch_options_start_only_runs_to_video_duration(tmp_path):
+    opts = build_fetch_options(tmp_path, start=30, end=None)
+    assert opts["download_ranges"]({"duration": 300}, None)[0]["end_time"] == 300
 
 
 def test_fetch_options_use_video_id_as_filename(tmp_path):
@@ -93,3 +151,27 @@ def test_fetch_audio_from_url_creates_outdir(tmp_path):
     fetch_audio_from_url("https://example.com/v", outdir=target,
                          ydl_factory=_FakeYDL)
     assert target.is_dir()
+
+
+def test_fetch_audio_from_url_passes_range_to_options(tmp_path):
+    """'1:20' のような表記のまま渡しても秒に直して効くこと。"""
+    seen = {}
+
+    def factory(opts):
+        seen["opts"] = opts
+        return _FakeYDL(opts)
+
+    fetch_audio_from_url("https://example.com/v", outdir=tmp_path,
+                         start="1:20", end="2:45", ydl_factory=factory)
+    rng = seen["opts"]["download_ranges"]({"duration": 300}, None)[0]
+    assert rng == {"start_time": 80, "end_time": 165}
+
+
+def test_fetch_audio_from_url_rejects_bad_range_before_downloading(tmp_path):
+    """おかしな指定はダウンロードを始める前に弾く（無駄な通信をしない）。"""
+    def factory(opts):
+        raise AssertionError("ダウンロードを始めてはいけない")
+
+    with pytest.raises(ValueError):
+        fetch_audio_from_url("https://example.com/v", outdir=tmp_path,
+                             start="2:45", end="1:20", ydl_factory=factory)

@@ -77,7 +77,12 @@ def create_app(state: dict) -> Flask:
         if url:
             # URLが入っていればURLを優先する（両方来たときの挙動を決め打ちにする）
             try:
-                fetched, _title = fetch_audio_from_url(url, outdir=str(upload_dir))
+                fetched, _title = fetch_audio_from_url(
+                    url, outdir=str(upload_dir),
+                    start=request.form.get("start"), end=request.form.get("end"))
+            except ValueError as e:
+                # 時刻の書式ミス・範囲の矛盾は、何が悪いか本人に返す
+                return (jsonify({"error": str(e)}), 400)
             except Exception:
                 logger.exception("URLからの取り込みに失敗しました: %s", url)
                 return (jsonify({"error": "URLから音源を取り込めませんでした"}), 400)

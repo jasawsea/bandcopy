@@ -247,7 +247,7 @@ def test_load_audio_accepts_url(monkeypatch, tmp_path):
     fake_stem.write_bytes(b"RIFF0000WAVE")
     seen = {}
 
-    def fake_fetch(url, outdir="audio"):
+    def fake_fetch(url, outdir="audio", start=None, end=None):
         seen["url"] = url
         p = Path(outdir) / "vid123.mp3"
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -275,7 +275,7 @@ def test_load_audio_url_wins_over_uploaded_file(monkeypatch, tmp_path):
     fake_stem = tmp_path / "drums.wav"
     fake_stem.write_bytes(b"RIFF0000WAVE")
 
-    def fake_fetch(url, outdir="audio"):
+    def fake_fetch(url, outdir="audio", start=None, end=None):
         p = Path(outdir) / "fromurl.mp3"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"ID3fake")
@@ -295,6 +295,47 @@ def test_load_audio_url_wins_over_uploaded_file(monkeypatch, tmp_path):
 
     assert r.status_code == 200
     assert state["audio_path"].endswith("fromurl.mp3")
+
+
+def test_load_audio_forwards_range_to_fetcher(monkeypatch, tmp_path):
+    """エディタからも切り出しが渡ること。"""
+    monkeypatch.chdir(tmp_path)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    seen = {}
+
+    def fake_fetch(url, outdir="audio", start=None, end=None):
+        seen.update(start=start, end=end)
+        p = Path(outdir) / "vid.mp3"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"ID3fake")
+        return str(p), "曲"
+
+    monkeypatch.setattr("app.server.fetch_audio_from_url", fake_fetch)
+    monkeypatch.setattr("app.server.build_template_from_audio",
+                        lambda p: make_template_grid(100.0, 1))
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+
+    r = create_app(state).test_client().post("/load", data={
+        "url": "https://example.com/v", "start": "1:20", "end": "2:45",
+    }, content_type="multipart/form-data")
+
+    assert r.status_code == 200
+    assert seen == {"start": "1:20", "end": "2:45"}
+
+
+def test_load_audio_bad_range_returns_the_reason(monkeypatch, tmp_path):
+    """書式ミスや範囲の矛盾は、一般化せず何が悪いか本人に返す。"""
+    monkeypatch.chdir(tmp_path)
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+
+    r = create_app(state).test_client().post("/load", data={
+        "url": "https://example.com/v", "start": "2:45", "end": "1:20",
+    }, content_type="multipart/form-data")
+
+    assert r.status_code == 400
+    assert "終了位置" in r.get_json()["error"]
 
 
 def test_load_audio_url_failure_returns_400_in_japanese(monkeypatch, tmp_path):

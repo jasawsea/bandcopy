@@ -16,6 +16,13 @@
              placeholder="https://www.youtube.com/watch?v=... を貼り付け">
     </p>
     <p>
+      <label for="audio-start">切り出し（任意・URLのときだけ効きます）</label><br>
+      <input type="text" id="audio-start" size="8" placeholder="開始 1:20">
+      〜
+      <input type="text" id="audio-end" size="8" placeholder="終了 2:45">
+      <br><small>空なら曲の全体を使います。</small>
+    </p>
+    <p>
       <label for="audio-file">または音源ファイル</label><br>
       <input type="file" id="audio-file" accept="audio/*">
     </p>
@@ -35,8 +42,15 @@
       }
       const fd = new FormData();
       // URLが入っていればURL優先（サーバ側の /load と同じ決め打ち）
-      if (url) fd.append("url", url);
-      else fd.append("audio", file);
+      if (url) {
+        fd.append("url", url);
+        const st = document.getElementById("audio-start").value.trim();
+        const en = document.getElementById("audio-end").value.trim();
+        if (st) fd.append("start", st);
+        if (en) fd.append("end", en);
+      } else {
+        fd.append("audio", file);
+      }
       msg.textContent = url
         ? "取り込み中…（ダウンロード＋ドラム分離で数分かかることがあります）"
         : "解析中…（ドラム分離は数分かかることがあります）";

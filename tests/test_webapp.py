@@ -51,7 +51,7 @@ def test_resolve_input_prefers_url_over_upload(tmp_path):
     up = tmp_path / "手持ち.mp3"
     up.write_bytes(b"x")
 
-    def fake(url, outdir="audio"):
+    def fake(url, outdir="audio", start=None, end=None):
         return "/tmp/from_url.mp3", "URLの曲"
 
     path, note = resolve_input(str(up), " https://example.com/v ", fetcher=fake)
@@ -71,3 +71,37 @@ def test_resolve_input_with_neither_asks_for_input():
     from app.webapp import resolve_input
     path, note = resolve_input(None, "", fetcher=lambda *a, **k: 1 / 0)
     assert path is None and "URL" in note
+
+
+def test_resolve_input_forwards_range_to_fetcher():
+    from app.webapp import resolve_input
+    seen = {}
+
+    def fake(url, outdir="audio", start=None, end=None):
+        seen.update(start=start, end=end)
+        return "/tmp/x.mp3", "曲"
+
+    _path, note = resolve_input(None, "https://example.com/v",
+                                start="1:20", end="2:45", fetcher=fake)
+    assert seen == {"start": "1:20", "end": "2:45"}
+    assert "1:20 〜 2:45" in note              # 何を切り出したか画面に出す
+
+
+def test_resolve_input_warns_range_is_ignored_for_uploads(tmp_path):
+    """アップロード音源には切り出しが効かないので、黙って無視せず伝える。"""
+    from app.webapp import resolve_input
+    up = tmp_path / "手持ち.mp3"
+    up.write_bytes(b"x")
+    path, note = resolve_input(str(up), "", start="1:20", end="",
+                               fetcher=lambda *a, **k: 1 / 0)
+    assert path == str(up)
+    assert "動画URLのときだけ" in note
+
+
+def test_resolve_input_upload_without_range_says_nothing(tmp_path):
+    from app.webapp import resolve_input
+    up = tmp_path / "手持ち.mp3"
+    up.write_bytes(b"x")
+    _path, note = resolve_input(str(up), "", start="", end="",
+                                fetcher=lambda *a, **k: 1 / 0)
+    assert note == ""

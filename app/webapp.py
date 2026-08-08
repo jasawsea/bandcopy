@@ -26,23 +26,41 @@ def _zip_dir(src_dir, dest_zip):
     return str(dest_zip)
 
 
-def resolve_input(audio_path, url, outdir="audio", fetcher=None):
+def resolve_input(audio_path, url, outdir="audio", start=None, end=None,
+                  fetcher=None):
     """アップロードとURLのどちらを使うかを決め、(音源パス, 通知文) を返す。
 
     URLが入っていればURLを優先する（両方入っている場合の挙動を決め打ちにして
     「どっちが使われたか分からない」を避ける）。使えるものが無ければ (None, 案内文)。
+
+    start / end は URL取り込みのときだけ効く（アップロード済みファイルは切らない）。
     """
     fetcher = fetcher or fetch_audio_from_url
     url = (url or "").strip()
     if url:
-        path, title = fetcher(url, outdir=outdir)
+        path, title = fetcher(url, outdir=outdir, start=start, end=end)
         note = f"「{title}」を取り込みました。"
+        if _has_range(start, end):
+            note += f"（{_range_label(start, end)} を切り出し）"
         if audio_path:
             note += "（URLを優先し、アップロードした音源は使っていません）"
         return path, note
     if audio_path:
-        return audio_path, ""
+        note = ""
+        if _has_range(start, end):
+            note = ("※ 切り出しは動画URLのときだけ効きます。"
+                    "アップロードした音源は全体を処理します。")
+        return audio_path, note
     return None, "音源をアップロードするか、動画URLを貼ってください。"
+
+
+def _has_range(start, end):
+    return bool((start or "").strip() if isinstance(start, str) else start) or \
+        bool((end or "").strip() if isinstance(end, str) else end)
+
+
+def _range_label(start, end):
+    return f"{(start or '先頭')} 〜 {(end or '最後')}"
 
 
 def process(audio_path, level=3, six=False, workdir=None):
@@ -130,6 +148,11 @@ def build_ui(editor_link: bool = False):
             placeholder="https://www.youtube.com/watch?v=... を貼り付け",
             info="URLを貼るとここから音源を取り込みます。手持ちのファイルを使うときは空のままで。")
         with gr.Row():
+            start = gr.Textbox(label="開始（任意）", placeholder="例 1:20",
+                               info="空なら曲の先頭から")
+            end = gr.Textbox(label="終了（任意）", placeholder="例 2:45",
+                             info="空なら曲の最後まで。※URLのときだけ効きます")
+        with gr.Row():
             audio = gr.Audio(type="filepath", label="または音源をアップロード（MP3 / WAV / M4A）")
             with gr.Column():
                 level = gr.Slider(1, 5, value=3, step=1,
@@ -143,9 +166,9 @@ def build_ui(editor_link: bool = False):
         tab_files = gr.File(label="タブ譜（ギター/ベースのPDF）", file_count="multiple")
         stems_file = gr.File(label="パート別の練習音源（zip）")
 
-        def _run(audio_path, url_text, lv, s):
+        def _run(audio_path, url_text, st, en, lv, s):
             try:
-                path, note = resolve_input(audio_path, url_text)
+                path, note = resolve_input(audio_path, url_text, start=st, end=en)
             except Exception as e:                       # 取り込み失敗は日本語で返す
                 return f"取り込みに失敗しました: {e}", None, None, None, None
             if not path:
@@ -155,7 +178,7 @@ def build_ui(editor_link: bool = False):
             return (msg, r["preview"], r["band_pdf"],
                     r["tab_pdfs"], r["stems_zip"])
 
-        run.click(_run, [audio, url, level, six],
+        run.click(_run, [audio, url, start, end, level, six],
                   [message, preview, band_file, tab_files, stems_file])
 
     return demo
