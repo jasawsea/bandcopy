@@ -239,6 +239,81 @@ def test_load_audio_without_file_returns_400():
     assert r.status_code == 400
 
 
+def test_load_audio_accepts_url(monkeypatch, tmp_path):
+    """エディタもURLから取り込めること（ファイルアップロード専用にしない）。"""
+    monkeypatch.chdir(tmp_path)
+    fake_grid = make_template_grid(100.0, 1)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+    seen = {}
+
+    def fake_fetch(url, outdir="audio"):
+        seen["url"] = url
+        p = Path(outdir) / "vid123.mp3"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"ID3fake")
+        return str(p), "取り込んだ曲"
+
+    monkeypatch.setattr("app.server.fetch_audio_from_url", fake_fetch)
+    monkeypatch.setattr("app.server.build_template_from_audio", lambda p: fake_grid)
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+
+    r = client.post("/load", data={"url": " https://example.com/watch?v=vid123 "},
+                    content_type="multipart/form-data")
+
+    assert r.status_code == 200
+    assert seen["url"] == "https://example.com/watch?v=vid123"   # 前後の空白は落とす
+    assert state["audio_path"].endswith("vid123.mp3")
+    assert state["grid"] == fake_grid
+
+
+def test_load_audio_url_wins_over_uploaded_file(monkeypatch, tmp_path):
+    """両方来たらURLを優先する（どちらが使われたか不定にしない）。"""
+    monkeypatch.chdir(tmp_path)
+    fake_stem = tmp_path / "drums.wav"
+    fake_stem.write_bytes(b"RIFF0000WAVE")
+
+    def fake_fetch(url, outdir="audio"):
+        p = Path(outdir) / "fromurl.mp3"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"ID3fake")
+        return str(p), "URLの曲"
+
+    monkeypatch.setattr("app.server.fetch_audio_from_url", fake_fetch)
+    monkeypatch.setattr("app.server.build_template_from_audio",
+                        lambda p: make_template_grid(100.0, 1))
+    monkeypatch.setattr("app.server.separate_drum_stem", lambda p, d: str(fake_stem))
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+
+    r = client.post("/load", data={
+        "url": "https://example.com/v",
+        "audio": (io.BytesIO(b"fake"), "手持ち.wav"),
+    }, content_type="multipart/form-data")
+
+    assert r.status_code == 200
+    assert state["audio_path"].endswith("fromurl.mp3")
+
+
+def test_load_audio_url_failure_returns_400_in_japanese(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    def boom(url, outdir="audio"):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("app.server.fetch_audio_from_url", boom)
+    state = {"grid": None, "stem_path": None, "audio_path": None}
+    client = create_app(state).test_client()
+
+    r = client.post("/load", data={"url": "https://example.com/bad"},
+                    content_type="multipart/form-data")
+
+    assert r.status_code == 400
+    assert "取り込め" in r.get_json()["error"]
+
+
 def test_load_audio_updates_state_and_returns_ok(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     fake_grid = make_template_grid(100.0, 1)
