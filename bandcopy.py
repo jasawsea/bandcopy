@@ -23,6 +23,7 @@ bandcopy.py
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -264,8 +265,45 @@ def midi_to_musicxml(midi_path: Path, xml_path: Path,
         return False
 
 
+def transcribe_drums_to_outputs(drum_wav, out_root, midi_dir, tempo):
+    """ドラム音源を自動採譜し、グリッドJSONとドラムMIDIを書き出す。
+
+    **なぜパイプラインに入れるか**：以前はエディタを開かないとドラム譜が
+    作られず、バンド譜の最下段がテンプレートの8ビートで代用されていた。
+    譜面が主役の道具で4段のうち1段だけ自動で埋まらないのは片手落ちなので、
+    音源を投げた時点でここまで出す（2026-08-08）。
+
+    エディタはこの下書きを「叩ける形に削る」道具として後段に残る。
+    戻り値は (グリッドJSONのパス, MIDIのパス)。失敗時は (None, None)。
+    """
+    import librosa
+    from app.analyze import count_bars
+    from app.drum_transcribe import transcribe_drums
+    from app.grid import grid_to_midi
+
+    try:
+        dur = librosa.get_duration(path=str(drum_wav))
+        bars = count_bars(dur, tempo)
+        grid = transcribe_drums(str(drum_wav), tempo, bars)
+    except Exception as e:
+        # ドラムが採れなくても他パートの成果は返したいので、ここで握って続行する
+        print(f"      ! ドラムの自動下書きに失敗（他パートは続行）: {e}")
+        return None, None
+
+    grid_path = Path(out_root) / "drum_grid.json"
+    grid_path.write_text(json.dumps(grid, ensure_ascii=False), encoding="utf-8")
+
+    midi_path = Path(midi_dir) / "ドラム.mid"
+    midi_path.write_bytes(grid_to_midi(grid))
+
+    hits = {k: sum(v) for k, v in grid["lanes"].items() if sum(v)}
+    print(f"      ✓ ドラム下書き: {bars}小節 / "
+          + " ".join(f"{k}{n}" for k, n in hits.items()))
+    return grid_path, midi_path
+
+
 def run_pipeline(audio_path, out_root, level=3, six=False, parts=None,
-                 tempo=None, keep_stems=True, no_chords=False):
+                 tempo=None, keep_stems=True, no_chords=False, no_drums=False):
     """分離→採譜→簡略化→楽譜(MIDI/MusicXML) を実行し、出力パス一式を返す。
 
     CLI(main) と Web アプリ(app/webapp.py) の共通処理。out_root はこの曲の
@@ -312,8 +350,15 @@ def run_pipeline(audio_path, out_root, level=3, six=False, parts=None,
     result = {
         "out_root": out_root, "stems_dir": stems_dir, "midi_dir": midi_dir,
         "score_dir": score_dir, "tempo": tempo, "level": level, "six": six,
-        "parts": [],
+        "parts": [], "drum_grid": None, "drum_midi": None,
     }
+
+    # --- ドラムの自動下書き（グリッドJSON＋MIDI）---
+    if not no_drums and "drums" in stems:
+        print("[2/4] ドラムを自動採譜中...")
+        g, m = transcribe_drums_to_outputs(
+            stems["drums"], out_root, midi_dir, tempo)
+        result["drum_grid"], result["drum_midi"] = g, m
 
     # --- 採譜 + 簡略化 + 楽譜化 ---
     import pretty_midi  # noqa: F401  （basic_pitch 経由で使用）
@@ -389,6 +434,10 @@ def main():
         "--no-chords", action="store_true",
         help="コードネームを楽譜に付けない"
     )
+    parser.add_argument(
+        "--no-drums", action="store_true",
+        help="ドラムの自動下書き（drum_grid.json / ドラム.mid）を作らない"
+    )
     args = parser.parse_args()
 
     check_dependencies()
@@ -403,6 +452,7 @@ def main():
         audio_path, out_root, level=args.level, six=args.six,
         parts=args.parts, tempo=args.tempo,
         keep_stems=args.keep_stems, no_chords=args.no_chords,
+        no_drums=args.no_drums,
     )
 
     print("\n" + "=" * 56)
