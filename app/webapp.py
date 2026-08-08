@@ -71,7 +71,7 @@ def process(audio_path, level=3, six=False, workdir=None):
     """
     import cairosvg
     from bandcopy import run_pipeline
-    from score_all import build_full_score_musicxml
+    from score_all import build_full_score_musicxml, resolve_chords
     from app.render import musicxml_to_pdf, musicxml_to_svg
     from app.tab import midi_to_tab_musicxml
     from tab import resolve_tab_targets
@@ -89,8 +89,9 @@ def process(audio_path, level=3, six=False, workdir=None):
     web_dir.mkdir(parents=True, exist_ok=True)
     out = dict(empty)
 
-    # バンド譜（PDF＋プレビュー画像）
-    xml, _six, _bars, _tempo, _n = build_full_score_musicxml(
+    # バンド譜（PDF＋プレビュー画像）。コードはここで1回だけ検出され、
+    # 下のタブ譜でも使い回す（同じ解析を2回走らせない）
+    xml, _six, _bars, _tempo, _n, chords = build_full_score_musicxml(
         out_root, level, audio=audio_path)
     if xml:
         band_pdf = web_dir / f"バンド譜_Lv{level}.pdf"
@@ -103,7 +104,7 @@ def process(audio_path, level=3, six=False, workdir=None):
 
     # タブ譜（ギター/ベース）
     for midi_path, instrument, label in resolve_tab_targets(out_root / "midi", level):
-        txml = midi_to_tab_musicxml(midi_path, instrument)
+        txml = midi_to_tab_musicxml(midi_path, instrument, chords=chords)
         tab_pdf = web_dir / f"{label}_タブ_Lv{level}.pdf"
         tab_pdf.write_bytes(musicxml_to_pdf(txml))
         out["tab_pdfs"].append(str(tab_pdf))

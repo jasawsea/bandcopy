@@ -15,6 +15,40 @@ TUNINGS = {
 
 DEFAULT_MAX_FRET = 24
 
+# コード表記 → MusicXML の <kind>。語彙は bandcopy.py の
+# CHORD_TRIADS / CHORD_SEVEN と対になっている（三和音＋7th＋sus4 の6種だけ）。
+# **music21 は使わない**：内部名(dominant-seventh)と MusicXML の <kind>(dominant)
+# が食い違い、そのまま書くと描画側が解釈できないため。
+CHORD_KINDS = {
+    "": "major",
+    "m": "minor",
+    "sus4": "suspended-fourth",
+    "7": "dominant",
+    "maj7": "major-seventh",
+    "m7": "minor-seventh",
+}
+
+
+def harmony_xml(figure):
+    """コード表記（例 'F#m7'）を MusicXML の <harmony> にする。
+
+    解釈できない表記は None を返す（怪しいものを書くより載せないほうが安全）。
+    """
+    import re
+    if not figure:
+        return None
+    m = re.match(r"^([A-G])([#b]?)(.*)$", str(figure).strip())
+    if not m:
+        return None
+    step, accidental, suffix = m.groups()
+    kind = CHORD_KINDS.get(suffix)
+    if kind is None:
+        return None
+    alter = {"#": 1, "b": -1}.get(accidental, 0)
+    alter_xml = f"<root-alter>{alter}</root-alter>" if alter else ""
+    return (f"<harmony><root><root-step>{step}</root-step>{alter_xml}</root>"
+            f"<kind>{kind}</kind></harmony>")
+
 
 def fret_positions(pitch, tuning, max_fret=DEFAULT_MAX_FRET):
     """そのピッチを押さえられる (弦, フレット) の候補一覧を返す。"""
@@ -99,12 +133,16 @@ def _dur_type_dots(el):
     return dur, typ, dots
 
 
-def midi_to_tab_musicxml(midi_path, instrument, max_fret=DEFAULT_MAX_FRET):
+def midi_to_tab_musicxml(midi_path, instrument, max_fret=DEFAULT_MAX_FRET,
+                         chords=None):
     """MIDI を、指定楽器のタブ譜 MusicXML 文字列に変換する。
 
     各音符/和音に運指（弦・フレット）を割り当て、TAB音部記号・弦数ぶんの五線で
     書き出す。ポリフォニックなMIDIは chordify で単一声部にまとめる。MusicXMLは
     自前で生成する（music21の和音タブ書き出しが複数和音で崩れるため）。
+
+    chords: 小節順のコード表記リスト（例 ["", "Em", "G7", ...]）。渡すと各小節の
+    頭にコードネームを載せる。None なら従来どおり載せない。
     """
     from music21 import converter
 
@@ -130,6 +168,11 @@ def midi_to_tab_musicxml(midi_path, instrument, max_fret=DEFAULT_MAX_FRET):
                 f"<clef><sign>TAB</sign><line>5</line></clef>"
                 f"<staff-details><staff-lines>{n_strings}</staff-lines></staff-details>"
                 "</attributes>")
+        if chords and mi <= len(chords):
+            # コードは音符より前に置く（MusicXMLの<harmony>は後続の音に掛かる）
+            h = harmony_xml(chords[mi - 1])
+            if h:
+                chunk.append(h)
         elems = list(m.notesAndRests)
         for el in elems:
             dur, typ, dots = _dur_type_dots(el)
