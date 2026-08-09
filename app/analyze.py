@@ -39,11 +39,12 @@ def separate_drum_stem(audio_path: str, out_dir: str) -> str:
 
 def transcribe_drum_from_audio(audio_path: str) -> dict:
     """音源を分離してドラムを自動採譜したグリッドを返す（分離済みstemが無いとき用）。"""
-    from app.drum_transcribe import transcribe_drums
+    from app.drum_transcribe import transcribe_with_separation
     path = Path(audio_path).expanduser().resolve()
     tempo = detect_tempo(path)
     import librosa
     dur = librosa.get_duration(path=str(path))
     bars = count_bars(dur, tempo)
-    stem = separate_drum_stem(str(path), str(Path("output") / "_editor"))
-    return transcribe_drums(stem, tempo, bars)
+    work = Path("output") / "_editor"
+    stem = separate_drum_stem(str(path), str(work))
+    return transcribe_with_separation(stem, tempo, bars, work / "larsnet")

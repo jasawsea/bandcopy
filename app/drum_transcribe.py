@@ -289,14 +289,56 @@ def assign_tom_lane(pitch, split=TOM_SPLIT_HZ):
     return "MT" if pitch < hi else "HT"
 
 
+def transcribe_with_separation(drum_wav, tempo, bars, work_dir, **kwargs):
+    """LarsNetでスネアを分離してから採譜する。重みが無ければ帯域方式のまま動く。
+
+    **なぜスネアだけ分離を挟むか（2026-08-09 実測）**：帯域方式のスネアは
+    過検出していた。分離音源から拾うと打点が減りながら2拍4拍の集中度が上がる
+    ＝削れているのが拍から外れた偽の打点だということ。
+
+        GLAMOROUS_SKY 55%→66% / MORE 53%→69% / RADIO_MAGIC 57%→63% /
+        The_Best_Song 61%→73% / MOON 38%→39%（横ばい）
+
+    打点数も6曲すべてで「1小節2発」に近づいた（例：506→322打点・期待342）。
+
+    **タムは分離しても採れなかった**ので、ここでも渡さない。LarsNetのタム音源は
+    いちばん強い成分がキック・スネアの位置にあり（同時率が偶然水準の1.4〜4.8倍）、
+    フィルではなく滲みを拾う。帯域方式・drumsepと合わせて3方式とも同じ失敗。
+    フィルはエディタで手入力する。
+    """
+    from app import larsnet
+
+    snare = larsnet.snare_stem(drum_wav, work_dir)
+    return transcribe_drums(drum_wav, tempo, bars, snare_wav=snare, **kwargs)
+
+
+def separated_flux(wav_path, lo, hi, n_fft=1024, hop=256):
+    """分離済みの単一楽器音源から立ち上がりを取る。
+
+    帯域で楽器を選り分ける必要がないので、その楽器が占める範囲を広めに取る。
+    戻り値は (flux, サンプリングレート, hop, スペクトログラム, 周波数軸)。
+    """
+    import librosa
+
+    y, sr = librosa.load(wav_path, sr=None, mono=True)
+    S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
+    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
+    return band_flux(S, freqs, lo, hi), sr, hop, S, freqs
+
+
 def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
                      threshold=HIT_THRESHOLD_FRAC, regular_hihat=False,
-                     suppress_ratio=SUPPRESS_BLEED_RATIO, kick_wav=None):
+                     suppress_ratio=SUPPRESS_BLEED_RATIO, kick_wav=None,
+                     snare_wav=None, toms_wav=None, tom_threshold=None):
     """ドラム音源からKK/SN/HHを自動採譜した6レーングリッドを返す。タムは全0。
 
     kick_wav: drumsep で分離したキック音源。渡すと**キックの検出と小節の位相決めに
         こちらを使う**（混ざり物が無いぶん正確になる）。スネア・ハイハットは
         従来どおり drum_wav_path から拾う。
+
+    snare_wav / toms_wav: LarsNet で分離したスネア／タム音源（評価中・既定は使わない）。
+        toms_wav を渡したときだけ HT/MT/FT が埋まる。タムの高さは `tom_pitch` で
+        測って `assign_tom_lane` で3レーンに振り分ける。
 
     threshold: 小さいほど細かい打点まで拾う（原曲に忠実／倍音の混信も増える）。
     suppress_ratio: 倍音による混信の抑制の強さ。0/None で抑制しない。
@@ -314,7 +356,10 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
     S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
     freqs = np.fft.rfftfreq(n_fft, 1 / sr)
 
-    sn_flux = snare_flux(S, freqs)
+    if snare_wav:
+        sn_flux, sn_sr, sn_hop, _, _ = separated_flux(snare_wav, 100, None)
+    else:
+        sn_flux, sn_sr, sn_hop = snare_flux(S, freqs), sr, hop
     hh_flux = band_flux(S, freqs, *HIHAT_BAND)
 
     # キックは分離音源があればそちらを使う。混ざり物が無いぶん位置が正確になる
@@ -347,7 +392,7 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
     half = _half_step(step_times)
     lanes = {lane: [0] * n for lane in lane_defs.keys()}
     kk_vals = step_peak_values(kk_flux, step_times, kk_sr, kk_hop, half)
-    sn_vals = step_peak_values(sn_flux, step_times, sr, hop, half)
+    sn_vals = step_peak_values(sn_flux, step_times, sn_sr, sn_hop, half)
     kk_hits = hits_from_values(kk_vals, threshold)
     sn_hits = hits_from_values(sn_vals, threshold)
     if suppress_ratio:
@@ -367,10 +412,24 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
     else:
         lanes["HH"] = hh_hits
 
-    # タム(HT/MT/FT)は全0のまま人が手入力する。
-    # **自動検出は試したが載せられなかった（2026-08-09）**：胴の帯域(90-320Hz)が
-    # 立ち高域ノイズが少ない打点をタムとみなす方式を実測したところ、候補の
-    # 80〜85%がキックと同じステップだった＝キックの二重検出。偽のフィルが
-    # 増えるだけなので採用しない。やるなら専用ADTモデル(A2)が要る。
+    # タム(HT/MT/FT)。既定では全0のまま人が手入力する。
+    # **帯域だけの自動検出は載せられなかった（2026-08-09）**：胴の帯域(90-320Hz)で
+    # 高域ノイズが少ない打点をタムとみなす方式を実測したところ、候補の
+    # 80〜85%がキックと同じステップだった＝キックの二重検出。
+    # → 分離音源(toms_wav)を渡したときだけ埋める。
+    if toms_wav:
+        tm_flux, tm_sr, tm_hop, St, ft = separated_flux(toms_wav, 40, None)
+        tm_vals = step_peak_values(tm_flux, step_times, tm_sr, tm_hop, half)
+        # タムは鳴っている時間が短い（フィルのときだけ）ので、KK/SN と同じ
+        # しきい値を当てると滲みまで拾ってしまう。既定は呼び出し側の threshold。
+        for i, hit in enumerate(hits_from_values(
+                tm_vals, tom_threshold if tom_threshold is not None else threshold)):
+            if not hit:
+                continue
+            frame = int(round(step_times[i] * tm_sr / tm_hop))
+            lane = assign_tom_lane(tom_pitch(St, ft, frame))
+            if lane:
+                lanes[lane][i] = 1
+
     return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar,
             "lanes": lanes}

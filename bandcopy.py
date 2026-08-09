@@ -278,13 +278,14 @@ def transcribe_drums_to_outputs(drum_wav, out_root, midi_dir, tempo):
     """
     import librosa
     from app.analyze import count_bars
-    from app.drum_transcribe import transcribe_drums
+    from app.drum_transcribe import transcribe_with_separation
     from app.grid import grid_to_midi
 
     try:
         dur = librosa.get_duration(path=str(drum_wav))
         bars = count_bars(dur, tempo)
-        grid = transcribe_drums(str(drum_wav), tempo, bars)
+        grid = transcribe_with_separation(
+            str(drum_wav), tempo, bars, Path(out_root) / "larsnet")
     except Exception as e:
         # ドラムが採れなくても他パートの成果は返したいので、ここで握って続行する
         print(f"      ! ドラムの自動下書きに失敗（他パートは続行）: {e}")

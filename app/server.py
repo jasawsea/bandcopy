@@ -13,7 +13,7 @@ from app import lanes
 from app.grid import grid_to_musicxml, grid_to_midi
 from app.render import musicxml_to_svg
 from app.drum_simplify import thin_kicks, thin_hihat
-from app.drum_transcribe import transcribe_drums
+from app.drum_transcribe import transcribe_with_separation
 from app.analyze import transcribe_drum_from_audio, build_template_from_audio, separate_drum_stem
 from app.fetch import fetch_audio_from_url
 
@@ -149,7 +149,9 @@ def create_app(state: dict) -> Flask:
             return (jsonify({"error": "ドラム音源が見つかりません"}), 400)
         try:
             if stem and Path(stem).exists():
-                grid = transcribe_drums(stem, g.get("tempo", 120.0), g.get("bars", 1))
+                grid = transcribe_with_separation(
+                    stem, g.get("tempo", 120.0), g.get("bars", 1),
+                    Path(stem).parent / "larsnet")
             else:
                 grid = transcribe_drum_from_audio(state["audio_path"])
         except (Exception, SystemExit):

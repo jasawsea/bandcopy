@@ -104,13 +104,13 @@ def test_auto_draft_uses_stem_and_returns_grid(monkeypatch, tmp_path):
     fake["lanes"]["KK"][0] = 1
     called = {}
 
-    def fake_transcribe(stem, tempo, bars, steps_per_bar=16):
+    def fake_transcribe(stem, tempo, bars, work_dir, steps_per_bar=16):
         called["stem"] = stem
         called["tempo"] = tempo
         called["bars"] = bars
         return fake
 
-    monkeypatch.setattr("app.server.transcribe_drums", fake_transcribe)
+    monkeypatch.setattr("app.server.transcribe_with_separation", fake_transcribe)
     stem_path = tmp_path / "drums.wav"
     stem_path.write_bytes(b"RIFF0000WAVE")
     state = {
@@ -136,7 +136,7 @@ def test_auto_draft_400_when_transcription_fails(monkeypatch, tmp_path):
     def boom(*a, **k):
         raise RuntimeError("壊れた音源")
 
-    monkeypatch.setattr("app.server.transcribe_drums", boom)
+    monkeypatch.setattr("app.server.transcribe_with_separation", boom)
     stem_path = tmp_path / "drums.wav"
     stem_path.write_bytes(b"RIFF0000WAVE")
     state = {"grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
@@ -151,7 +151,7 @@ def test_auto_draft_400_when_separation_calls_sys_exit(monkeypatch, tmp_path):
     def bail(*a, **k):
         raise SystemExit(1)
 
-    monkeypatch.setattr("app.server.transcribe_drums", bail)
+    monkeypatch.setattr("app.server.transcribe_with_separation", bail)
     stem_path = tmp_path / "drums.wav"
     stem_path.write_bytes(b"RIFF0000WAVE")
     state = {"grid": {"tempo": 120.0, "bars": 1, "steps_per_bar": 16, "lanes": {}},
