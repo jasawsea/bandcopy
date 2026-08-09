@@ -102,6 +102,47 @@ def reconcile_beats(beats, tempo, tol=0.15):
     return beats
 
 
+def repair_beat_runs(beats, floor=0.85):
+    """間隔が中央値より明らかに詰まった区間だけ、本来の拍数で等分に引き直す。
+
+    **なぜ必要か（2026-08-09 MOONで判明）**：ビート追従は曲の途中で拍を余分に
+    挿入することがある。MOONでは2箇所で**3拍分の時間に4拍**が置かれていた
+    （間隔0.75倍が4連続）。`beat_step_times` は拍を**番号で**辿るので、
+    余分な拍が1つ入るとそこから先の小節位相が丸ごと1拍ずれる。
+    実際にキックが1拍3拍→2拍4拍、スネアが2拍4拍→1拍3拍へ40小節ぶん反転し、
+    挿入が2箇所あったため後半で元に戻る、という形で現れていた
+    （スネアの2拍4拍占有率 39%＝他5曲の62〜73%に対して極端に低い）。
+
+    詰まった区間の前後の拍は正しいので、その間を中央値で割った本数に引き直す。
+    **異常が無ければ入力をそのまま返す。** 全体を予測値で引き直す案も測ったが、
+    テンポ揺れ追従を壊して他4曲が悪化した（MOON 39→47%・GLAMOROUS_SKY 66→57%）。
+    区間限定なら他5曲の数字は1つも動かず、MOONだけ 39→50% に上がる。
+    """
+    beats = np.asarray(beats, dtype=float)
+    if len(beats) < 3:
+        return beats
+    d = np.diff(beats)
+    med = float(np.median(d))
+    if med <= 0:
+        return beats
+
+    out, i = [float(beats[0])], 0
+    while i < len(d):
+        if d[i] >= med * floor:
+            out.append(float(beats[i + 1]))
+            i += 1
+            continue
+        j = i
+        while j < len(d) and d[j] < med * floor:     # 詰まった区間の終わりを探す
+            j += 1
+        span = float(beats[j] - beats[i])
+        n = max(1, int(round(span / med)))           # 本来あるべき拍数
+        for k in range(1, n + 1):
+            out.append(float(beats[i]) + span * k / n)
+        i = j
+    return np.asarray(out)
+
+
 def anchor_beats(beats, phase):
     """小節の位相をずらす。phase 拍ぶんだけ手前に拍を継ぎ足す。
 
@@ -380,8 +421,8 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
     # --- グリッドを実際の拍に合わせる（ここが旧方式との最大の違い） ---
     _, beat_frames = librosa.beat.beat_track(
         y=y, sr=sr, hop_length=hop, start_bpm=tempo, tightness=100)
-    beats = reconcile_beats(
-        librosa.frames_to_time(beat_frames, sr=sr, hop_length=hop), tempo)
+    beats = repair_beat_runs(reconcile_beats(
+        librosa.frames_to_time(beat_frames, sr=sr, hop_length=hop), tempo))
     if len(beats) >= 2:
         phase = choose_bar_phase(kk_flux, beats, n, kk_sr, kk_hop, steps_per_bar)
         step_times = beat_step_times(

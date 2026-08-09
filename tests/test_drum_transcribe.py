@@ -5,6 +5,7 @@ from app.drum_transcribe import (
     band_flux,
     snare_flux,
     reconcile_beats,
+    repair_beat_runs,
     anchor_beats,
     beat_step_times,
     step_peak_values,
@@ -212,3 +213,39 @@ def test_transcribe_drums_survives_audio_too_short_for_beat_tracking(tmp_path):
     sf.write(str(wav), np.zeros(2205, dtype=np.float32), 22050)   # 0.1秒の無音
     grid = transcribe_drums(str(wav), tempo=120.0, bars=1)
     assert len(grid["lanes"]["KK"]) == 16
+
+
+def test_repair_beat_runs_leaves_a_clean_beat_list_untouched():
+    """異常が無ければ1つも動かさない。他の曲のテンポ揺れ追従を壊さないため。"""
+    beats = np.arange(20) * 0.5
+    assert np.array_equal(repair_beat_runs(beats), beats)
+
+
+def test_repair_beat_runs_removes_an_inserted_beat():
+    """3拍分の時間に4拍が入った区間を、3拍に引き直す（MOONで実際に起きた形）。
+
+    ここを直さないと、余分な1拍のぶんだけ**そこから先の小節位相が丸ごとずれる**。
+    実測ではキックとスネアが40小節にわたって1拍ぶん反転していた。
+    """
+    good = list(np.arange(10) * 0.5)                  # 0.0 〜 4.5
+    bad = [4.5 + 0.375 * k for k in range(1, 5)]      # 1.5秒を4分割＝0.75倍が4連続
+    tail = list(6.0 + np.arange(1, 10) * 0.5)
+    got = repair_beat_runs(np.array(good + bad + tail))
+
+    assert len(got) == len(good) + 3 + len(tail)      # 4拍が3拍になる
+    assert np.allclose(np.diff(got), 0.5)             # 全体が等間隔に戻る
+
+
+def test_repair_beat_runs_keeps_the_beats_around_the_damaged_run():
+    """壊れた区間の外側の拍は1つも動かさない。"""
+    good = list(np.arange(6) * 0.5)
+    bad = [2.5 + 0.375 * k for k in range(1, 5)]
+    tail = list(4.0 + np.arange(1, 6) * 0.5)
+    got = repair_beat_runs(np.array(good + bad + tail))
+    for t in good + tail:
+        assert np.isclose(got, t).any()
+
+
+def test_repair_beat_runs_survives_a_short_list():
+    assert len(repair_beat_runs(np.array([1.0, 2.0]))) == 2
+    assert len(repair_beat_runs(np.array([]))) == 0
