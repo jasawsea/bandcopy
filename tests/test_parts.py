@@ -40,3 +40,22 @@ def test_model_and_chord_part():
     # コードを載せる段：4分離=other、6分離=guitar
     assert chord_part_key(six=False) == "other"
     assert chord_part_key(six=True) == "guitar"
+
+
+def test_bass_is_monophonic():
+    """ベースは単音楽器。難易度によらず同時発音1音に制限する。
+
+    採譜モデルは1つの音に対して基音と倍音を別の音として出すことがあり、
+    難易度3の「和音3音まで」では基音＋倍音2つがそのまま通ってしまう
+    （2026-08-09 実測：同時刻のオクターブ重なりが71〜183箇所）。
+    """
+    for six in (False, True):
+        assert spec_map(six)["bass"].max_chord_notes == 1
+
+
+def test_other_parts_follow_the_difficulty_setting():
+    """ベース以外は難易度側の設定に従う（和音を弾く楽器なので潰さない）。"""
+    for six in (False, True):
+        for key, spec in spec_map(six).items():
+            if key != "bass":
+                assert spec.max_chord_notes is None

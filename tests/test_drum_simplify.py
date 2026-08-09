@@ -84,3 +84,19 @@ def test_thin_hihat_does_not_mutate_input():
     g = _grid(hh=list(hh))
     thin_hihat(g)
     assert g["lanes"]["HH"] == hh
+
+
+def test_max_notes_overrides_the_profile():
+    """max_notes を渡すと難易度の和音上限より優先されること。"""
+    import pretty_midi
+    from simplify import simplify_midi
+    pm = pretty_midi.PrettyMIDI(initial_tempo=120.0)
+    inst = pretty_midi.Instrument(program=33)
+    # 同時刻に 基音 + オクターブ + オクターブ5度（採譜モデルが出す倍音の形）
+    for p in (33, 45, 52):
+        inst.notes.append(pretty_midi.Note(velocity=90, pitch=p, start=0.0, end=0.5))
+    pm.instruments.append(inst)
+
+    simplify_midi(pm, 3, 120.0, keep="low", verbose=False, max_notes=1)
+    pitches = [n.pitch for i in pm.instruments for n in i.notes]
+    assert pitches == [33]          # 最低音（基音）だけ残る

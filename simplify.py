@@ -74,7 +74,8 @@ def _pick_chord_notes(notes, max_notes: int, keep: str):
     return picked
 
 
-def simplify_midi(pm, level: int, tempo_bpm: float, keep: str = "outer", verbose: bool = True):
+def simplify_midi(pm, level: int, tempo_bpm: float, keep: str = "outer",
+                  verbose: bool = True, max_notes: int = None):
     """
     pretty_midi.PrettyMIDI オブジェクトを受け取り、簡略化して返す。
 
@@ -82,6 +83,11 @@ def simplify_midi(pm, level: int, tempo_bpm: float, keep: str = "outer", verbose
     level      : 1〜5 の難易度レベル
     tempo_bpm  : 曲のテンポ（グリッド計算に使用）
     keep       : 和音を削るときにどの音を優先して残すか（low / high / outer）
+    max_notes  : 同時発音数の上限を難易度によらず固定したいとき（例: ベース=1）。
+                 **単音楽器で要る**。採譜モデルは1つの音に対して基音と倍音を
+                 別々の音として出すことがあり、難易度3の「和音3音まで」だと
+                 基音＋倍音2つがそのまま通ってしまう（2026-08-09 実測: ベースに
+                 同時刻のオクターブ重なりが71〜183箇所）。
     """
     if level not in PROFILES:
         raise ValueError(f"難易度レベルは1〜5で指定してください（指定値: {level}）")
@@ -125,7 +131,8 @@ def simplify_midi(pm, level: int, tempo_bpm: float, keep: str = "outer", verbose
         reduced = []
         for start_time in sorted(grouped.keys()):
             reduced.extend(
-                _pick_chord_notes(grouped[start_time], profile.max_chord_notes, keep)
+                _pick_chord_notes(grouped[start_time],
+                                  max_notes or profile.max_chord_notes, keep)
             )
 
         # --- 4. 同じ高さの音の連打をまとめる ---

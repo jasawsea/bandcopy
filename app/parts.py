@@ -15,13 +15,14 @@ class PartSpec:
     clef: str         # treble / bass / treble8vb / bass8vb / percussion
     keep: str         # 和音削減で残す方針: low / outer / high
     transcribe: bool = True  # False は採譜せず分離音源のみ（ドラム）
+    max_chord_notes: int = None  # 同時発音数の上限（None=難易度まかせ／1=単音楽器）
 
 
 # 段の並びは上→下。ドラムは最下段（grid から積むため transcribe=False）。
 _FOUR_STEM = [
     PartSpec("vocals", "ボーカル", "Vocal", "treble", "high"),
     PartSpec("other", "ギター・キーボード等", "Guitar", "treble8vb", "outer"),
-    PartSpec("bass", "ベース", "Bass", "bass8vb", "low"),
+    PartSpec("bass", "ベース", "Bass", "bass8vb", "low", max_chord_notes=1),
     PartSpec("drums", "ドラム", "Drums", "percussion", "outer", transcribe=False),
 ]
 
@@ -31,7 +32,7 @@ _SIX_STEM = [
     PartSpec("guitar", "ギター", "Guitar", "treble8vb", "outer"),
     PartSpec("piano", "キーボード", "Keys", "treble", "outer"),
     PartSpec("other", "その他", "Other", "treble", "outer"),
-    PartSpec("bass", "ベース", "Bass", "bass8vb", "low"),
+    PartSpec("bass", "ベース", "Bass", "bass8vb", "low", max_chord_notes=1),
     PartSpec("drums", "ドラム", "Drums", "percussion", "outer", transcribe=False),
 ]
 

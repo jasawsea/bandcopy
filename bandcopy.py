@@ -387,7 +387,8 @@ def run_pipeline(audio_path, out_root, level=3, six=False, parts=None,
         print(f"      → {spec[part].label}")
         raw_path = midi_dir / f"{spec[part].label}_原曲どおり.mid"
         write_midi_with_tempo(pm, raw_path, tempo)
-        simplify_midi(pm, level, tempo, keep=spec[part].keep)
+        simplify_midi(pm, level, tempo, keep=spec[part].keep,
+                      max_notes=spec[part].max_chord_notes)
         simple_path = midi_dir / f"{spec[part].label}_Lv{level}.mid"
         write_midi_with_tempo(pm, simple_path, tempo)
 
