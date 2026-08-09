@@ -163,3 +163,45 @@ def test_lower_threshold_captures_more(tmp_path):
     def total(g):
         return sum(sum(v) for v in g["lanes"].values())
     assert total(fine) >= total(coarse)
+
+
+def test_suppress_bleed_drops_the_weaker_lane():
+    """同じステップで両方鳴ったら、明確に弱い方を落とす（倍音の混信対策）。"""
+    from app.drum_transcribe import suppress_bleed
+    #      step0: KKが圧倒的  step1: SNが圧倒的  step2: 同じくらい
+    kk_v = [10.0, 1.0, 10.0]
+    sn_v = [1.0, 10.0, 10.0]
+    kk, sn = suppress_bleed([1, 1, 1], [1, 1, 1], kk_v, sn_v, ratio=0.8)
+    assert (kk[0], sn[0]) == (1, 0)      # KKだけ残る
+    assert (kk[1], sn[1]) == (0, 1)      # SNだけ残る
+    assert (kk[2], sn[2]) == (1, 1)      # 同時に叩いたとみなして両方残す
+
+
+def test_suppress_bleed_leaves_single_lane_hits_alone():
+    from app.drum_transcribe import suppress_bleed
+    kk, sn = suppress_bleed([1, 0], [0, 1], [10.0, 1.0], [1.0, 10.0], ratio=0.8)
+    assert kk == [1, 0] and sn == [0, 1]
+
+
+def test_suppression_reduces_overlap_on_real_material(tmp_path):
+    """抑制を入れると、同じステップを両方が主張する率が下がること。"""
+    wav = tmp_path / "groove.wav"
+    _write_rock_groove(str(wav))
+
+    def overlap(grid):
+        kk, sn = grid["lanes"]["KK"], grid["lanes"]["SN"]
+        both = sum(1 for a, b in zip(kk, sn) if a and b)
+        return both / max(sum(kk), 1)
+
+    off = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS, suppress_ratio=0)
+    on = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS)
+    assert overlap(on) <= overlap(off)
+
+
+def test_hihat_is_not_suppressed(tmp_path):
+    """ハイハットはKK/SNと同時に鳴るのが普通なので、抑制の対象にしない。"""
+    wav = tmp_path / "groove.wav"
+    _write_rock_groove(str(wav))
+    off = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS, suppress_ratio=0)
+    on = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS)
+    assert sum(on["lanes"]["HH"]) == sum(off["lanes"]["HH"])

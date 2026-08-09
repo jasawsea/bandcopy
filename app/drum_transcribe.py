@@ -30,9 +30,17 @@ import numpy as np
 from app import lanes as lane_defs
 
 # 打点と見なすしきい値。その帯域の「上位の強さ」に対する比で決める（曲の音量に依らない）。
-# 実曲3素材で 0.40〜0.70 が合格域。0.5 はその中央。
-HIT_THRESHOLD_FRAC = 0.5
+# **2026-08-09 に 0.5 → 0.25 へ下げた**（やっさん「一旦は原曲通りに」）。
+# 下げると細部を拾える一方で倍音の混信が増えるので、下の SUPPRESS_BLEED_RATIO と対で使う。
+HIT_THRESHOLD_FRAC = 0.25
 HIT_REFERENCE_PCT = 95
+
+# 倍音による混信の抑制。同じステップでKKとSNが両方立ったとき、相手より明確に
+# 弱い方を落とす（弱い方 < 強い方 * この比 なら落とす）。
+# キックの倍音がスネア帯域に、スネアの低域成分がキック帯域に届くため、
+# 1打点が2レーンで鳴る。実測では 0.25+抑制で重複67%→15%・2拍4拍33%→53%。
+# **HHは対象外**：ハイハットはKK/SNと同時に鳴るのが普通で、落とすと譜面が壊れる。
+SUPPRESS_BLEED_RATIO = 0.8
 
 # 各レーンが使う帯域（Hz）。スネアは胴とノイズの2帯域を足す。
 KICK_BAND = (30, 120)
@@ -153,6 +161,30 @@ def hits_from_values(values, frac=HIT_THRESHOLD_FRAC, ref_pct=HIT_REFERENCE_PCT)
     return [1 if v > frac * ref else 0 for v in values]
 
 
+def suppress_bleed(kk_hits, sn_hits, kk_values, sn_values,
+                   ratio=SUPPRESS_BLEED_RATIO):
+    """同じステップでKK/SNが両方立ったとき、相手より明確に弱い方を落とす。
+
+    倍音の混信対策。1つの打点が2レーンで鳴るのを減らす。帯域どうしは絶対値を
+    比べられないので、それぞれ自分の上位値で正規化してから比べる。
+
+    ratio を大きくするほど強く抑制する（1.0で「弱い方は必ず落とす」）。
+    同じくらいの強さで両方鳴っていれば、実際に同時に叩いたものとして両方残す。
+    """
+    kv, sv = np.asarray(kk_values, dtype=float), np.asarray(sn_values, dtype=float)
+    kn = kv / (np.percentile(kv, HIT_REFERENCE_PCT) + 1e-9)
+    sn = sv / (np.percentile(sv, HIT_REFERENCE_PCT) + 1e-9)
+    kk_out, sn_out = list(kk_hits), list(sn_hits)
+    for i, (a, b) in enumerate(zip(kk_out, sn_out)):
+        if not (a and b):
+            continue
+        if kn[i] < sn[i] * ratio:
+            kk_out[i] = 0
+        elif sn[i] < kn[i] * ratio:
+            sn_out[i] = 0
+    return kk_out, sn_out
+
+
 def choose_bar_phase(flux, beats, n_steps, sr, hop, steps_per_bar):
     """小節頭にキックが最も集まる位相(0〜3)を選ぶ。
 
@@ -229,10 +261,12 @@ def resolve_hihat_subdivision(hh_onset_times, bars, bar_sec, hf_fraction,
 
 
 def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
-                     threshold=HIT_THRESHOLD_FRAC, regular_hihat=False):
+                     threshold=HIT_THRESHOLD_FRAC, regular_hihat=False,
+                     suppress_ratio=SUPPRESS_BLEED_RATIO):
     """ドラム音源からKK/SN/HHを自動採譜した6レーングリッドを返す。タムは全0。
 
-    threshold: 小さいほど細かい打点まで拾う（原曲に忠実／誤検出も増える）。
+    threshold: 小さいほど細かい打点まで拾う（原曲に忠実／倍音の混信も増える）。
+    suppress_ratio: 倍音による混信の抑制の強さ。0/None で抑制しない。
     regular_hihat: True にすると**ハイハットを実検出せず**、密度から決めた
         8分/16分の規則パターンを全小節に敷く（旧来の挙動）。
 
@@ -269,10 +303,15 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
 
     half = _half_step(step_times)
     lanes = {lane: [0] * n for lane in lane_defs.keys()}
-    lanes["KK"] = hits_from_values(
-        step_peak_values(kk_flux, step_times, sr, hop, half), threshold)
-    lanes["SN"] = hits_from_values(
-        step_peak_values(sn_flux, step_times, sr, hop, half), threshold)
+    kk_vals = step_peak_values(kk_flux, step_times, sr, hop, half)
+    sn_vals = step_peak_values(sn_flux, step_times, sr, hop, half)
+    kk_hits = hits_from_values(kk_vals, threshold)
+    sn_hits = hits_from_values(sn_vals, threshold)
+    if suppress_ratio:
+        # 倍音の混信で1打点が2レーンで鳴るのを減らす
+        kk_hits, sn_hits = suppress_bleed(
+            kk_hits, sn_hits, kk_vals, sn_vals, suppress_ratio)
+    lanes["KK"], lanes["SN"] = kk_hits, sn_hits
 
     hh_hits = hits_from_values(
         step_peak_values(hh_flux, step_times, sr, hop, half), threshold)
