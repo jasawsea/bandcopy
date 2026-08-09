@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 作業ディレクトリ：`/Users/shigiharayasushi/Documents/Yasushi/06_アプリ開発/bandcopy/`。パスはここからの相対。実行は `./venv/bin/python`。
+- 作業ディレクトリ：`/Users/shigiharayasushi/Documents/Yasushi/40_遊ぶ/43_bandcopy/`。パスはここからの相対。実行は `./venv/bin/python`。
 - gitブランチは `master`（このフォルダで初期化済み）。各タスク末尾でコミット。
 - 段の並び順（上→下）：**ボーカル → ギター/鍵盤 → ベース → ドラム**。
 - 段ごとの音部記号・楽器名：ボーカル=treble/"Vocal"、ギター=treble8vb/"Guitar"、ベース=bass8vb/"Bass"、ドラム=percussion/"Drums"（既存 `bandcopy.CLEF_STRATEGY` と一致）。

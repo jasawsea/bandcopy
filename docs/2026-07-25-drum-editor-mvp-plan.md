@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Python 3.12（venv：`06_アプリ開発/bandcopy/venv/`。実行は `./venv/bin/python`）。basic-pitchの制約で3.13不可。
-- 作業ディレクトリ：`/Users/shigiharayasushi/Documents/Yasushi/06_アプリ開発/bandcopy/`。以降のパスはここからの相対。
+- Python 3.12（venv：`40_遊ぶ/43_bandcopy/venv/`。実行は `./venv/bin/python`）。basic-pitchの制約で3.13不可。
+- 作業ディレクトリ：`/Users/shigiharayasushi/Documents/Yasushi/40_遊ぶ/43_bandcopy/`。以降のパスはここからの相対。
 - このフォルダは未gitリポジトリ。Task 0 で `git init`（このフォルダのみ）してからコミットを行う。
 - グリッドは **16分固定**（steps_per_bar=16）。3連符・32分・ハネは対象外。
 - ドラム3レーン固定：`KK`（キック）/`SN`（スネア）/`HH`（ハイハット）。
@@ -63,7 +63,7 @@ bandcopy/
 
 Run:
 ```bash
-cd "/Users/shigiharayasushi/Documents/Yasushi/06_アプリ開発/bandcopy" && git init && printf "venv/\noutput/\n__pycache__/\n*.pyc\n.pytest_cache/\n" > .gitignore
+cd "/Users/shigiharayasushi/Documents/Yasushi/40_遊ぶ/43_bandcopy" && git init && printf "venv/\noutput/\n__pycache__/\n*.pyc\n.pytest_cache/\n" > .gitignore
 ```
 Expected: `Initialized empty Git repository ...`
 
