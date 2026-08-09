@@ -6,7 +6,22 @@
 CLI の `getaudio.py` は切り出し・音質指定など単体ツールとしての機能を持つので
 別実装のまま（こちらはWeb UIが必要とする最小限だけを担う）。
 """
+import shutil
 from pathlib import Path
+
+# yt-dlp が署名解読に使うJavaScriptランタイム。**既定は deno のみ**で、
+# 入っていないと「一部フォーマットが取れない」状態になり、動画によっては
+# ダウンロードが HTTP 403 で失敗する（2026-08-09 に実機で確認）。
+# PATH にあるものを自動で選ぶ。Colab や多くのMacには node がある。
+JS_RUNTIMES = ("deno", "node", "bun")
+
+
+def detect_js_runtime():
+    """使えるJavaScriptランタイム名を返す。無ければ None。"""
+    for name in JS_RUNTIMES:
+        if shutil.which(name):
+            return name
+    return None
 
 
 def parse_timestamp(value):
@@ -55,6 +70,7 @@ def build_fetch_options(outdir, quality=192, start=None, end=None):
     **noplaylist=True が要**：`&list=RD...` 付きのURL（YouTubeの自動生成
     ミックス等）をそのまま貼られたとき、外すと再生リスト全曲を落としてしまう。
     """
+    runtime = detect_js_runtime()
     opts = {
         "format": "bestaudio/best",
         "outtmpl": str(Path(outdir) / "%(id)s.%(ext)s"),
@@ -68,6 +84,8 @@ def build_fetch_options(outdir, quality=192, start=None, end=None):
         "noplaylist": True,
         "retries": 3,
     }
+    if runtime:
+        opts["js_runtimes"] = {runtime: {}}
     # 部分だけ落とす（サビだけ練習したい等）。どちらか片方だけの指定も許す。
     if start is not None or end is not None:
         opts["download_ranges"] = lambda info, ydl: [{

@@ -175,3 +175,25 @@ def test_fetch_audio_from_url_rejects_bad_range_before_downloading(tmp_path):
     with pytest.raises(ValueError):
         fetch_audio_from_url("https://example.com/v", outdir=tmp_path,
                              start="2:45", end="1:20", ydl_factory=factory)
+
+
+def test_js_runtime_is_enabled_when_available(tmp_path, monkeypatch):
+    """JSランタイムを指定すること。無指定だと一部フォーマットが取れず403になる。"""
+    import app.fetch as fetch
+    monkeypatch.setattr(fetch.shutil, "which",
+                        lambda n: "/usr/bin/node" if n == "node" else None)
+    assert build_fetch_options(tmp_path)["js_runtimes"] == {"node": {}}
+
+
+def test_js_runtime_prefers_deno(tmp_path, monkeypatch):
+    """yt-dlp が既定で想定している deno を優先する。"""
+    import app.fetch as fetch
+    monkeypatch.setattr(fetch.shutil, "which", lambda n: f"/usr/bin/{n}")
+    assert build_fetch_options(tmp_path)["js_runtimes"] == {"deno": {}}
+
+
+def test_no_js_runtime_key_when_none_installed(tmp_path, monkeypatch):
+    """どれも無ければ指定しない（yt-dlp の既定に任せる）。"""
+    import app.fetch as fetch
+    monkeypatch.setattr(fetch.shutil, "which", lambda n: None)
+    assert "js_runtimes" not in build_fetch_options(tmp_path)
