@@ -102,3 +102,64 @@ def test_kick_and_snare_are_not_the_same_lane(tmp_path):
     assert sum(kk) > 0
     overlap = both / sum(kk) * 100
     assert overlap < 50, f"キックの{overlap:.0f}%をスネアも主張している"
+
+
+def test_hihat_varies_between_bars(tmp_path):
+    """ハイハットが小節ごとに変化すること。
+
+    旧来は密度から決めた規則パターンを全小節に敷いていたため、157小節すべてが
+    同じ8分になり「譜面が音源と違う」状態だった（2026-08-09 やっさん指摘）。
+    """
+    import soundfile as sf
+    wav = tmp_path / "vary.wav"
+    sr, tempo, bars = 22050, 120.0, 8
+    bar_sec = 4 * 60.0 / tempo
+    x = np.zeros(int(sr * bar_sec * bars))
+
+    def tick(t0):
+        i0 = int(t0 * sr)
+        env = np.exp(-np.linspace(0, 60, int(0.03 * sr)))
+        seg = np.random.RandomState(1).randn(len(env)) * env * 0.6
+        # 高域だけ残す（ハイハット相当）
+        seg = np.diff(seg, prepend=seg[0])
+        n = min(len(seg), len(x) - i0)
+        if n > 0:
+            x[i0:i0 + n] += seg[:n]
+
+    for b in range(bars):
+        t = b * bar_sec
+        # 偶数小節は8分、奇数小節は4分だけ＝小節ごとに違う型にする
+        step = bar_sec / 8 if b % 2 == 0 else bar_sec / 4
+        k = 8 if b % 2 == 0 else 4
+        for i in range(k):
+            tick(t + i * step)
+    sf.write(str(wav), x.astype(np.float32), sr)
+
+    grid = transcribe_drums(str(wav), tempo=tempo, bars=bars)
+    spb = grid["steps_per_bar"]
+    hh = grid["lanes"]["HH"]
+    patterns = {tuple(hh[b * spb:(b + 1) * spb]) for b in range(bars)}
+    assert len(patterns) > 1, f"全小節が同じ型になっている: {patterns}"
+
+
+def test_regular_hihat_option_restores_old_behaviour(tmp_path):
+    """規則パターンに戻す選択肢は残す（下書きとして扱いやすい場面がある）。"""
+    wav = tmp_path / "groove.wav"
+    _write_rock_groove(str(wav))
+    grid = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS, regular_hihat=True)
+    spb = grid["steps_per_bar"]
+    hh = grid["lanes"]["HH"]
+    patterns = {tuple(hh[b * spb:(b + 1) * spb]) for b in range(BARS)}
+    assert len(patterns) == 1        # 規則パターンなので全小節同じ
+
+
+def test_lower_threshold_captures_more(tmp_path):
+    """しきい値を下げると打点が増えること（原曲に忠実にするための調整口）。"""
+    wav = tmp_path / "groove.wav"
+    _write_rock_groove(str(wav))
+    coarse = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS, threshold=0.7)
+    fine = transcribe_drums(str(wav), tempo=TEMPO, bars=BARS, threshold=0.2)
+
+    def total(g):
+        return sum(sum(v) for v in g["lanes"].values())
+    assert total(fine) >= total(coarse)

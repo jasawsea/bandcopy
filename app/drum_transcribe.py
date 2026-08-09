@@ -228,8 +228,18 @@ def resolve_hihat_subdivision(hh_onset_times, bars, bar_sec, hf_fraction,
     return sub
 
 
-def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
-    """ドラム音源からKK/SN/HHを自動採譜した6レーングリッドを返す。タムは全0。"""
+def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
+                     threshold=HIT_THRESHOLD_FRAC, regular_hihat=False):
+    """ドラム音源からKK/SN/HHを自動採譜した6レーングリッドを返す。タムは全0。
+
+    threshold: 小さいほど細かい打点まで拾う（原曲に忠実／誤検出も増える）。
+    regular_hihat: True にすると**ハイハットを実検出せず**、密度から決めた
+        8分/16分の規則パターンを全小節に敷く（旧来の挙動）。
+
+    **2026-08-09 にハイハットを実検出に変えた。** 旧来は規則パターンを敷いていたため、
+    157小節すべてが同じ8分になり「譜面が音源と違う・細かなリフが入っていない」状態
+    だった（やっさん指摘）。実検出にすると小節ごとの型が1種類→64〜92種類になる。
+    """
     import librosa
 
     n_fft, hop = 1024, 256
@@ -260,17 +270,25 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16):
     half = _half_step(step_times)
     lanes = {lane: [0] * n for lane in lane_defs.keys()}
     lanes["KK"] = hits_from_values(
-        step_peak_values(kk_flux, step_times, sr, hop, half))
+        step_peak_values(kk_flux, step_times, sr, hop, half), threshold)
     lanes["SN"] = hits_from_values(
-        step_peak_values(sn_flux, step_times, sr, hop, half))
+        step_peak_values(sn_flux, step_times, sr, hop, half), threshold)
 
-    # HHは打点ごとに拾わず、密度から刻みを決めて規則パターンを敷く（下書きとして扱いやすい）
-    hh_steps = step_peak_values(hh_flux, step_times, sr, hop, half)
-    hh_hits = hits_from_values(hh_steps)
-    hh_times = [t for t, v in zip(step_times, hh_hits) if v]
-    hf = high_freq_fraction(S, freqs)
-    sub = resolve_hihat_subdivision(hh_times, bars, bar_sec, hf)
-    lanes["HH"] = fill_regular_hihat(sub, bars, steps_per_bar)
+    hh_hits = hits_from_values(
+        step_peak_values(hh_flux, step_times, sr, hop, half), threshold)
+    if regular_hihat:
+        # 旧来の挙動：密度から刻みを決めて規則パターンを敷く
+        hh_times = [t for t, v in zip(step_times, hh_hits) if v]
+        hf = high_freq_fraction(S, freqs)
+        sub = resolve_hihat_subdivision(hh_times, bars, bar_sec, hf)
+        lanes["HH"] = fill_regular_hihat(sub, bars, steps_per_bar)
+    else:
+        lanes["HH"] = hh_hits
 
+    # タム(HT/MT/FT)は全0のまま人が手入力する。
+    # **自動検出は試したが載せられなかった（2026-08-09）**：胴の帯域(90-320Hz)が
+    # 立ち高域ノイズが少ない打点をタムとみなす方式を実測したところ、候補の
+    # 80〜85%がキックと同じステップだった＝キックの二重検出。偽のフィルが
+    # 増えるだけなので採用しない。やるなら専用ADTモデル(A2)が要る。
     return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar,
             "lanes": lanes}
