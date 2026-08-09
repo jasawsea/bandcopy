@@ -76,7 +76,9 @@ rich==15.0.0
 safetensors==0.8.0
 scikit-learn==1.9.0
 scipy==1.17.1
-setuptools==83.0.0
+# setuptools 81 で pkg_resources が削除され、resampy 0.4.2 が読めなくなる。
+# resampy は basic-pitch が <0.4.3 で固定しているため上げられないので、こちらを下げる。
+setuptools==80.10.2
 six==1.17.0
 soundfile==0.14.0
 soxr==1.1.0
