@@ -260,6 +260,35 @@ def resolve_hihat_subdivision(hh_onset_times, bars, bar_sec, hf_fraction,
     return sub
 
 
+# タムを3レーンに振り分ける境目（Hz）。drumsep で分離した後なら、
+# 他の太鼓が混ざらないので高さだけで素直に切れる。
+# 実測（MORE）：タムの主要周波数は 65〜215Hz・中央値151Hz。
+TOM_SPLIT_HZ = (110, 175)
+TOM_PITCH_BAND = (60, 400)
+
+
+def tom_pitch(S, freqs, frame, lo=TOM_PITCH_BAND[0], hi=TOM_PITCH_BAND[1]):
+    """その時刻でいちばん強い周波数を返す（タムの高さの判定用）。"""
+    sel = (freqs >= lo) & (freqs <= hi)
+    seg = S[:, max(0, frame - 1):frame + 3]
+    if seg.shape[1] == 0:
+        return None
+    sub = seg.mean(axis=1)[sel]
+    if sub.size == 0 or sub.max() <= 0:
+        return None
+    return float(freqs[sel][sub.argmax()])
+
+
+def assign_tom_lane(pitch, split=TOM_SPLIT_HZ):
+    """周波数から FT / MT / HT を決める（低いほどフロアタム）。"""
+    if pitch is None:
+        return None
+    lo, hi = split
+    if pitch < lo:
+        return "FT"
+    return "MT" if pitch < hi else "HT"
+
+
 def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
                      threshold=HIT_THRESHOLD_FRAC, regular_hihat=False,
                      suppress_ratio=SUPPRESS_BLEED_RATIO):
@@ -329,5 +358,67 @@ def transcribe_drums(drum_wav_path, tempo, bars, steps_per_bar=16,
     # 立ち高域ノイズが少ない打点をタムとみなす方式を実測したところ、候補の
     # 80〜85%がキックと同じステップだった＝キックの二重検出。偽のフィルが
     # 増えるだけなので採用しない。やるなら専用ADTモデル(A2)が要る。
+    return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar,
+            "lanes": lanes}
+
+
+def transcribe_drums_from_stems(stems, tempo, bars, steps_per_bar=16,
+                                threshold=HIT_THRESHOLD_FRAC):
+    """分離済みの4本（キック/スネア/シンバル/タム）から6レーンを採譜する。
+
+    **帯域で見分けるのをやめた版。** 各レーンが自分専用の音源を持つので、
+    倍音の混信（1打点が2レーンで鳴る）が構造的に起きない。タムも初めて採れる。
+    stems は app/drumsep.py の separate() が返す {名前: パス}。
+    """
+    import librosa
+
+    n_fft, hop = 1024, 256
+    n = bars * steps_per_bar
+
+    # グリッドはキック音源で決める（低域の立ち上がりが小節頭を一番よく表す）
+    y, sr = librosa.load(stems["kick"], sr=None, mono=True)
+    S_k = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
+    freqs = np.fft.rfftfreq(n_fft, 1 / sr)
+    kk_flux = band_flux(S_k, freqs, 20, 200)
+
+    _, beat_frames = librosa.beat.beat_track(
+        y=y, sr=sr, hop_length=hop, start_bpm=tempo, tightness=100)
+    beats = reconcile_beats(
+        librosa.frames_to_time(beat_frames, sr=sr, hop_length=hop), tempo)
+    if len(beats) >= 2:
+        phase = choose_bar_phase(kk_flux, beats, n, sr, hop, steps_per_bar)
+        step_times = beat_step_times(
+            anchor_beats(beats, phase), n, max(1, steps_per_bar // 4))
+    else:
+        step_times = _fixed_step_times(tempo, n, steps_per_bar)
+    half = _half_step(step_times)
+
+    lanes = {lane: [0] * n for lane in lane_defs.keys()}
+    lanes["KK"] = hits_from_values(
+        step_peak_values(kk_flux, step_times, sr, hop, half), threshold)
+
+    # スネア・シンバルはそれぞれの音源の全帯域の立ち上がりで拾う
+    for key, lane in (("snare", "SN"), ("cymbals", "HH")):
+        ys, srs = librosa.load(stems[key], sr=None, mono=True)
+        Ss = np.abs(librosa.stft(ys, n_fft=n_fft, hop_length=hop))
+        fs = np.fft.rfftfreq(n_fft, 1 / srs)
+        flux = band_flux(Ss, fs, 20, None)
+        lanes[lane] = hits_from_values(
+            step_peak_values(flux, step_times, srs, hop, half), threshold)
+
+    # タムは打点ごとに高さを見て HT/MT/FT に振り分ける
+    yt, srt = librosa.load(stems["toms"], sr=None, mono=True)
+    St = np.abs(librosa.stft(yt, n_fft=2048, hop_length=hop))
+    ft = np.fft.rfftfreq(2048, 1 / srt)
+    tom_flux = band_flux(St, ft, *TOM_PITCH_BAND)
+    tom_vals = step_peak_values(tom_flux, step_times, srt, hop, half)
+    for i, hit in enumerate(hits_from_values(tom_vals, threshold)):
+        if not hit:
+            continue
+        frame = int(round(step_times[i] * srt / hop))
+        lane = assign_tom_lane(tom_pitch(St, ft, frame))
+        if lane:
+            lanes[lane][i] = 1
+
     return {"tempo": tempo, "bars": bars, "steps_per_bar": steps_per_bar,
             "lanes": lanes}
